@@ -1,6 +1,6 @@
 const amqp = require('amqplib/callback_api');
 const {
-  RABBITMQ_URL, QUEUE_IN, QUEUE_APPROVED, QUEUE_REJECTED
+  RABBITMQ_URL, QUEUE_IN, QUEUE_APPROVED, QUEUE_REJECTED, EXCHANGE_NAME
 } = require('./config');
 const { handleReservation } = require('./processor');
 
@@ -19,15 +19,18 @@ amqp.connect(RABBITMQ_URL, (err0, connection) => {
         process.exit(1);
       }
 
+      channel.assertExchange(EXCHANGE_NAME, 'direct', { durable: true });
+
       // Garante existência das filas
       channel.assertQueue(QUEUE_IN, { durable: true });
-      channel.assertQueue(QUEUE_APPROVED, { durable: true });
-      channel.assertQueue(QUEUE_REJECTED, { durable: true });
+      channel.bindQueue(QUEUE_IN, EXCHANGE_NAME, QUEUE_IN);
+    //   channel.assertQueue(QUEUE_APPROVED, { durable: true });
+    //   channel.assertQueue(QUEUE_REJECTED, { durable: true });
 
       // Processa 1 mensagem por vez
       channel.prefetch(1);
 
-      console.log(`[*] MS Pagamento aguardando em ${QUEUE_IN}...`);
+      console.log(`[*] MS Pagamento aguardando em ${QUEUE_IN} (exchange=${EXCHANGE_NAME})...`);
 
       // Consome mensagens
       channel.consume(

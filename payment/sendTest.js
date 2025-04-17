@@ -1,4 +1,3 @@
-// sendTest.js
 const amqp = require('amqplib');
 
 async function test() {
