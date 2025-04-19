@@ -24,8 +24,6 @@ amqp.connect(RABBITMQ_URL, (err0, connection) => {
       // Garante existência das filas
       channel.assertQueue(QUEUE_IN, { durable: true });
       channel.bindQueue(QUEUE_IN, EXCHANGE_NAME, QUEUE_IN);
-    //   channel.assertQueue(QUEUE_APPROVED, { durable: true });
-    //   channel.assertQueue(QUEUE_REJECTED, { durable: true });
 
       // Processa 1 mensagem por vez
       channel.prefetch(1);

@@ -1,13 +1,37 @@
 const { signPayload } = require('./sign');
 const { QUEUE_APPROVED, QUEUE_REJECTED, EXCHANGE_NAME } = require('./config');
 
+
 /**
- * Simula a validação de pagamento.
- * Aqui foi colocado somente a validacão se o pagamento é maior do que zero.
- * ver se precisa de outra validação
+ * Valida os campos da reserva antes de aprovar o pagamento:
+ *  - embarkDate deve ser hoje ou no futuro
+ *  - passengers deve ser integer > 0
+ *  - cabins deve ser integer > 0
  */
 function validatePayment(reserva) {
-    return reserva.valorPorPessoa > 0;
+    // 1) Checa data de embarque
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const embark = new Date(reserva.embarkDate);
+    if (isNaN(embark.getTime()) || embark < today) {
+        console.warn(`[!] Data inválida: ${reserva.embarkDate}`);
+        return false;
+    }
+
+    // 2) Checa número de passageiros
+    if (!Number.isInteger(reserva.passengers) || reserva.passengers <= 0) {
+        console.warn(`[!] Passengers inválido: ${reserva.passengers}`);
+        return false;
+    }
+
+    // 3) Checa número de cabines
+    if (!Number.isInteger(reserva.cabins) || reserva.cabins <= 0) {
+        console.warn(`[!] Cabins inválido: ${reserva.cabins}`);
+        return false;
+    }
+
+    return true;
 }
 
 async function handleReservation(reserva, channel) {
