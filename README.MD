@@ -1,4 +1,5 @@
 # Payment
+- rodar node keygen.js para gerar as chaves publica e privada 
 - rodar node index.js
 - Deverá aparecer "[*] MS Pagamento aguardando em reserva-criada (exchange=cruise-direct)..."
 - Deve ser iniciado primeiro
