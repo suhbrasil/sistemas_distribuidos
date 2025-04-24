@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const destinations = ['destinationX', 'destinationY', 'destinationZ', 'destinationW'];
+const destinations = ["Salvador", "Maceió", "Natal", "Paraty", "Ilhéus"];
 const NUM_PROMOTIONS = 5; // adjust for more or fewer promotions
 const FILE_PATH = path.join(__dirname, 'promo.json');
 
