@@ -1,0 +1,32 @@
+[
+  {
+    "destination": "destinationX",
+    "start_date": "2025-05-14",
+    "end_date": "2025-05-17",
+    "price": "3286.22"
+  },
+  {
+    "destination": "destinationW",
+    "start_date": "2025-05-15",
+    "end_date": "2025-05-18",
+    "price": "3821.53"
+  },
+  {
+    "destination": "destinationY",
+    "start_date": "2025-06-22",
+    "end_date": "2025-06-30",
+    "price": "3473.85"
+  },
+  {
+    "destination": "destinationZ",
+    "start_date": "2025-05-02",
+    "end_date": "2025-05-09",
+    "price": "4536.13"
+  },
+  {
+    "destination": "destinationX",
+    "start_date": "2025-06-04",
+    "end_date": "2025-06-14",
+    "price": "2913.63"
+  }
+]
