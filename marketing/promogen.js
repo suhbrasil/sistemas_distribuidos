@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const destinations = ["Salvador", "Maceió", "Natal", "Paraty", "Ilhéus"];
+const destinations = ["Salvador", "Maceio", "Natal", "Paraty", "Ilheus"];
 const NUM_PROMOTIONS = 5; // adjust for more or fewer promotions
 const FILE_PATH = path.join(__dirname, 'promo.json');
 
@@ -11,8 +11,16 @@ function generateFutureDate(daysFromToday) {
   return date.toISOString().split('T')[0];
 }
 
+// Alteração aqui:
+let currentIndex = 0;
 function generateRandomPromotion() {
-  const destination = destinations[Math.floor(Math.random() * destinations.length)];
+  if (currentIndex >= destinations.length) {
+    throw new Error("Número de promoções excede número de destinos únicos.");
+  }
+
+  const destination = destinations[currentIndex];
+  currentIndex++;
+
   const startInDays = Math.floor(Math.random() * 60) + 5;
   const durationDays = Math.floor(Math.random() * 10) + 3;
 
