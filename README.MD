@@ -22,3 +22,12 @@
         "cabins":      1
     }
     - Método GET na url http://localhost:3000/reservas/{reservaId} para consultar o andamento da reserva e as informacoes dela
+
+# Subscriber
+- rodar node subscriber.js promo_destination<Letra> promo_destination<Letra> ...
+    - para se inscrever nas promoçoes de destinos desejados
+
+# Marketing
+- rodar node promogen.js
+- rodar index.js
+- Deverá aparecer a lista de promos publicadas "Promo published to 'promo_destinationX': promo"
