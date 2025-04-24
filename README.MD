@@ -14,6 +14,7 @@
 - rodar node index.js
 - Deve ser iniciado apenas depois de já ter iniciado o payment e o ticket
 - Abrir postman ou outra consulta de endpoint:
+    - Método GET na url "http://localhost:3000/itinerarios?destination=Maceió&embarkDate=2025-07-10&embarkPort=Porto%20Santos" para filtrar os itinerários existentes, é necessário preencher todos os parâmetros!!!
     - Método POST na url "http://localhost:3000/reservas" para criar uma reserva, exemplo de body:
     {
         "cruiseId":    "cruzeiro-123",
