@@ -12,6 +12,8 @@ const {
 } = require('./config');
 const { verifyPayload } = require('./verify');
 
+const cruises = require('./data/cruises.json');
+
 const app = express();
 app.use(express.json());
 
@@ -34,6 +36,25 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
     //
     // 1) Endpoints HTTP
     //
+
+    // Listar itinerários
+    app.get('/itinerarios', (request, response) => {
+      const { destination, embarkDate, embarkPort } = request.query;
+
+      if(!destination && !embarkDate && !embarkPort) {
+        return response.status(400).json({ error: 'Parâmetros de consulta inválidos' });
+      }
+
+      const filteredCruises = cruises.filter(cruise => {
+        return (
+          cruise.visitedPlaces.includes(destination) &&
+          cruise.embarkDate === embarkDate &&
+          cruise.embarkPort === embarkPort
+        );
+      });
+
+      response.status(200).json(filteredCruises);
+    });
 
     // Criar reserva
     app.post('/reservas', (req, res) => {
