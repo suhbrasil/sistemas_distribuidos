@@ -18,7 +18,7 @@
     - Método POST na url "http://localhost:3000/reservas" para criar uma reserva, exemplo de body:
     {
         "cruiseId":    "cruzeiro-123",
-        "embarkDate":  "2025-06-01",
+        "embarkDate":  "2025-07-10",
         "passengers":  2,
         "cabins":      1
     }
