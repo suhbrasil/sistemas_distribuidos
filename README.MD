@@ -24,7 +24,7 @@
     - Método GET na url http://localhost:3000/reservas/{reservaId} para consultar o andamento da reserva e as informacoes dela
 
 # Subscriber
-- rodar node subscriber.js promo_destination<Letra> promo_destination<Letra> ...
+- rodar node subscriber.js promo_destinationX promo_destinationY ...
     - para se inscrever nas promoçoes de destinos desejados
 
 # Marketing
