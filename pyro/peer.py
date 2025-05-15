@@ -1,5 +1,8 @@
 import os, sys, time, threading, random
 import Pyro5.api, logging
+from Pyro5.serializers import serpent
+import base64, pickle, os
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
@@ -32,9 +35,8 @@ class Peer:
 
         print(f"Peer {self.id} init. Local files: {self.files}")
 
-    # ----------------------------------------------------------------
+
     # 1) Registro no NameServer e descoberta de Tracker
-    # ----------------------------------------------------------------
     def connect(self):
         ns = Pyro5.api.locate_ns(host="localhost", port=9090)
         uri = daemon.register(self)
@@ -42,8 +44,6 @@ class Peer:
         logging.info(f"Peer.{self.id} registrado → {uri}")
 
         # Aguarda um pouco antes de verificar o tracker
-        # Sleep maior para garantir que todos os 5 peers tenham tempo de se conectar
-        # antes que qualquer eleição comece
         time.sleep(7)
 
         # Busca maior Tracker_Epoca_X
@@ -56,7 +56,7 @@ class Peer:
                     best, best_tracker = x, u
 
         if best_tracker:
-            # Se existe tracker, atualiza a época e se registra
+            # Se existe tracker, atualiza a época e  registra
             self.epoch = best
             self.current_tracker = best_tracker
             print(f"Current Tracker: {self.current_tracker}, Epoch: {self.epoch}")
@@ -75,8 +75,7 @@ class Peer:
             self.hb_timer.cancel()
 
         # Agenda novo timer para detecção de falha do tracker
-        delay = random.uniform(0.5, 1)  # 150-300ms conforme especificação
-        # print(f"Peer {self.id}, delay: {delay}")
+        delay = random.uniform(0.5, 1)
         self.hb_timer = threading.Timer(delay, self._handle_tracker_failure)
         self.hb_timer.daemon = True
         self.hb_timer.start()
@@ -87,8 +86,6 @@ class Peer:
         if self.is_tracker:
             return  # Se eu sou o tracker, não faço nada
 
-        # logging.info(f"Peer {self.id}: Timer expirou, possível falha no tracker")
-
         # Tenta contatar o tracker diretamente para confirmar falha
         try:
             if self.current_tracker:
@@ -96,7 +93,6 @@ class Peer:
                 tracker._pyroTimeout = 0.2
                 alive = tracker.ping()  # Método simples para testar conexão
                 if alive:
-                    # logging.info(f"Peer {self.id}: Falso alarme, tracker ainda está vivo")
                     self._reset_hb_timer()
                     return
         except Exception as e:
@@ -107,9 +103,7 @@ class Peer:
         self.current_tracker = None  # Limpa referência do tracker antigo
         self._start_election()
 
-    # ----------------------------------------------------------------
     # 2) Registro inicial de arquivos no tracker
-    # ----------------------------------------------------------------
     @Pyro5.api.expose
     def register_all_files(self, peer_id, files):
         if self.is_tracker:
@@ -219,15 +213,12 @@ class Peer:
             # Epoch maior, atualiza e vota
             self.epoch = epoch
             self.voted_for = candidate_id
-            # logging.info(f"Peer {self.id}: Votou em {candidate_id} para época {epoch}")
             return True
         elif epoch == self.epoch and self.voted_for is None:
             # Mesma época mas não votou ainda
             self.voted_for = candidate_id
-            # logging.info(f"Peer {self.id}: Votou em {candidate_id} na mesma época {epoch}")
             return True
 
-        # logging.info(f"Peer {self.id}: Não votou em {candidate_id} (época atual: {self.epoch}, já votou em: {self.voted_for})")
         return False
 
     def _become_tracker(self):
@@ -342,9 +333,7 @@ class Peer:
         """Retorna lista de arquivos locais"""
         return list(self.files)
 
-    # ----------------------------------------------------------------
     # 4) Heartbeat do Tracker + Timeout nos Peers
-    # ----------------------------------------------------------------
     def _start_heartbeat(self):
         """Inicia envio periódico de heartbeats aos peers"""
         def hb_loop():
@@ -396,12 +385,9 @@ class Peer:
 
             return True
         else:
-            # logging.info(f"Peer {self.id}: Ignorou heartbeat da época {epoch} (menor que {self.epoch})")
             return False
 
-    # ----------------------------------------------------------------
     # 5) File-sharing: index, search, download
-    # ----------------------------------------------------------------
     @Pyro5.api.expose
     def update_file_index(self, peer_id, filename, is_add):
         """Atualiza o índice de arquivos (adição/remoção)"""
@@ -439,9 +425,7 @@ class Peer:
                 logging.error(f"Erro ao ler arquivo {filename}: {e}")
         return None
 
-    # ----------------------------------------------------------------
     # 6) Comandos usuário
-    # ----------------------------------------------------------------
     def cli(self):
         print(f"\nPeer {self.id} iniciado. Digite 'help' para ver os comandos disponíveis.\n")
 
@@ -511,13 +495,12 @@ class Peer:
                     peer_proxy = Pyro5.api.Proxy(uri)
                     peer_proxy._pyroTimeout = 5.0  # Timeout maior para download
                     data = peer_proxy.download_file(filename)
-                    # data = self.download_file(filename)
 
                     if data:
                         try:
                             if not isinstance(data, bytes):
-                                if hasattr(Pyro5.api.serpent, 'tobytes') and hasattr(data, 'data'):
-                                    data = Pyro5.api.serpent.tobytes(data.data)
+                                if hasattr(serpent, 'tobytes') and hasattr(data, 'data'):
+                                    data = serpent.tobytes(data.data)
                                 elif isinstance(data, dict) and 'data' in data:
                                     # Tenta extrair os bytes do dicionário retornado pelo Pyro
                                     import base64
@@ -561,7 +544,7 @@ class Peer:
                 print(f"É tracker: {self.is_tracker}")
                 print(f"Tracker atual: {self.current_tracker}")
                 print(f"Arquivos locais: {self.files}")
-                print(f"Peers vivos conhecidos: {self.peers_alive}")
+                # print(f"Peers vivos conhecidos: {self.peers_alive}")
                 if self.is_tracker:
                     print(f"Índice de arquivos: {self.index}")
                 print("")
