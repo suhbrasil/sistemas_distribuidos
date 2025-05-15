@@ -12,9 +12,10 @@ class Peer:
         self.files = set(os.listdir(self.dir))
 
         # Estado eleição
-        self.epoch = 1
+        self.epoch = 0
         self.voted_for = None
-        self.votes = set()
+        self.votes = 0
+        self.started_election = None
         self.peers_alive = set()
 
         # Tracker & heartbeat
@@ -36,7 +37,6 @@ class Peer:
         # busca maior Tracker_Epoca_X
         best = 0
         for name, u in ns.list().items():
-            print(f"Name: ", name)
             if name.startswith("Tracker_Epoca_"):
                 x = int(name.rsplit("_",1)[1])
                 if x>best:
@@ -44,12 +44,24 @@ class Peer:
         if self.current_tracker:
             print(f"Current Tracker: ", self.current_tracker)
             self._tell_tracker_my_files()
+            self._reset_hb_timer()
 
-        # inicia timer de eleição se não achar tracker
-        if not self.current_tracker:
+        else:
+            # se não tem tracker nenhum, já inicia eleição
             time.sleep(10)
             print("No tracker found!")
             self._start_election()
+
+
+    def _reset_hb_timer(self):
+        # cancela qualquer timer antigo
+        if self.hb_timer:
+            self.hb_timer.cancel()
+        # agenda novo timer para disparar _start_election
+        delay = random.uniform(0.15, 0.3)
+        self.hb_timer = threading.Timer(delay, self._start_election)
+        self.hb_timer.daemon = True
+        self.hb_timer.start()
 
     # ----------------------------------------------------------------
     # 2) Registro inicial de arquivos no tracker
@@ -73,45 +85,57 @@ class Peer:
     # 3) Eleição simples por Época+Maioria
     # ----------------------------------------------------------------
     def _start_election(self):
-        self.epoch += 1
-        self.voted_for = self.id
-        self.votes = {self.id}
-        self.peers_alive = set()
+        # **2) limpa estado de eleição antigo**
+        self.started_election = None
+        self.voted_for = None
+        self.votes = set()
 
         ns = Pyro5.api.locate_ns(host="localhost", port=9090)
-        # cria um dict só com peers
+        # pega apenas os peers cadastrados
         peers = {name: uri for name, uri in ns.list().items() if name.startswith("peer.")}
 
-        # 1) sinaliza alive com timeout e try/except
-        for name, uri in peers.items():
-            if name == f"peer.{self.id}":
-                continue
-            try:
-                proxy = Pyro5.api.Proxy(uri)
-                proxy._pyroTimeout = 0.5     # 500 ms de timeout
-                proxy.signal_alive(self.id)
-            except Exception as e:
-                print(f"Não conseguiu sinalizar alive para {name}: {e}")
-
-        time.sleep(0.5)
-
-        # 2) solicita votos apenas dos que responderam (estão em peers_alive)
+        responded = set()
         for name, uri in peers.items():
             peer_num = int(name.split(".")[1])
-            if peer_num == self.id or peer_num not in self.peers_alive:
+            if peer_num == self.id:
                 continue
             try:
                 proxy = Pyro5.api.Proxy(uri)
                 proxy._pyroTimeout = 0.5
-                ok = proxy.start_election(self.id, self.epoch)
-                if ok:
-                    self.receive_vote(peer_num, self.epoch)
-            except Exception:
+                proxy.signal_alive(self.id)      # tenta saber se ele está vivo
+                responded.add(peer_num)          # só aqui confirmo que respondeu
+            except Exception as e:
+                print(f"Não conseguiu sinalizar alive para {name}: {e}")
                 pass
 
-        # 3) checa maioria
-        if len(self.votes) >= (len(self.peers_alive) // 2 + 1):
+        # agora sim guardo só quem respondeu
+        self.peers_alive = responded
+        total_participants = len(responded) + 1  # +1 é você mesmo
+        majority = total_participants // 2 + 1
+
+        # se ainda não comecei eleição, marco época e voto em mim
+        if self.started_election is None:
+            self.epoch += 1
+            self.started_election = self.id
+            self.votes = {self.id}
+
+        # peço voto só a quem respondeu
+        for peer_num in responded:
+            try:
+                uri = peers[f"peer.{peer_num}"]
+                proxy = Pyro5.api.Proxy(uri)
+                proxy._pyroTimeout = 0.5
+                ok = proxy.start_election(self.id, self.epoch)
+                if ok:
+                    self.votes.add(peer_num)
+            except Exception:
+                print(f"Não votou {name}: {e}")
+                pass
+
+        # checa maioria dinamicamente
+        if len(self.votes) >= majority:
             self._become_tracker()
+
 
 
     @Pyro5.api.expose
@@ -136,12 +160,16 @@ class Peer:
     def _become_tracker(self):
         self.is_tracker = True
         self.current_tracker = None
-        self.index = {}          # filename → set(peers)
+        self.voted_for = None
+        self.started_election = None
+
+        self.index = {}
         tracking_name = f"Tracker_Epoca_{self.epoch}"
         ns = Pyro5.api.locate_ns(host="localhost", port=9090)
-        ns.register(tracking_name, daemon.uriFor(self))
-        logging.info(f"Eleito tracker da época {self.epoch}: Peer {self.id} → {tracking_name}")
-        self._start_heartbeat()
+        ns.register(tracking_name, daemon.uriFor(self))  # registra novo tracker
+        print(f"Eleito tracker da época {self.epoch}: Peer {self.id} → {tracking_name}")
+        self._start_heartbeat()  # dispara os heartbeats
+
 
     # ----------------------------------------------------------------
     # 4) Heartbeat do Tracker + Timeout nos Peers
@@ -154,18 +182,18 @@ class Peer:
                     if name.startswith("peer.") and name!=f"peer.{self.id}":
                         try:
                             p=Pyro5.api.Proxy(uri); p.receive_heartbeat(self.id,self.epoch)
-                        except: pass
+                        except:
+                            print(f"Peer {name} não recebeu heartbeat")
+                            pass
                 time.sleep(0.1)
         threading.Thread(target=hb_loop,daemon=True).start()
 
     @Pyro5.api.expose
     def receive_heartbeat(self, tracker_id, ep):
-        if ep>=self.epoch:
-            self.epoch=ep
-            if self.hb_timer: self.hb_timer.cancel()
-            self.hb_timer = threading.Timer(random.uniform(0.15,0.3), self._start_election)
-            self.hb_timer.daemon=True
-            self.hb_timer.start()
+        if ep >= self.epoch:
+            # atualiza época e cancela/reinicia o timer
+            self.epoch = ep
+            self._reset_hb_timer()
         return True
 
     # ----------------------------------------------------------------
@@ -223,5 +251,4 @@ if __name__=="__main__":
     threading.Thread(target=daemon.requestLoop, daemon=True).start()
     time.sleep(1)
     peer.connect()
-    logging.info("Daemon rodando, entre comandos:")
     peer.cli()
