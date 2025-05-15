@@ -14,7 +14,7 @@ class Peer:
         # Estado eleição
         self.epoch = 0
         self.voted_for = None
-        self.votes = 0
+        self.votes = set()
         self.started_election = None
         self.peers_alive = set()
 
@@ -22,6 +22,13 @@ class Peer:
         self.is_tracker = False
         self.current_tracker = None
         self.hb_timer = None
+
+        # Variáveis para o detecção de falhas
+        self.tracker_failure_detected = False
+        self.election_in_progress = False
+
+        # Contagem de peers na rede
+        self.expected_peers = 5  # Total esperado de peers
 
         logging.info(f"Peer {self.id} init. Local files: {self.files}")
 
@@ -34,34 +41,70 @@ class Peer:
         ns.register(f"peer.{self.id}", uri)
         logging.info(f"Peer.{self.id} registrado → {uri}")
 
-        # busca maior Tracker_Epoca_X
+        # Aguarda um pouco antes de verificar o tracker
+        # Sleep maior para garantir que todos os 5 peers tenham tempo de se conectar
+        # antes que qualquer eleição comece
+        time.sleep(10)
+
+        # Busca maior Tracker_Epoca_X
         best = 0
+        best_tracker = None
         for name, u in ns.list().items():
             if name.startswith("Tracker_Epoca_"):
                 x = int(name.rsplit("_",1)[1])
-                if x>best:
-                    best, self.current_tracker = x, u
-        if self.current_tracker:
-            print(f"Current Tracker: ", self.current_tracker)
+                if x > best:
+                    best, best_tracker = x, u
+
+        if best_tracker:
+            # Se existe tracker, atualiza a época e se registra
+            self.epoch = best
+            self.current_tracker = best_tracker
+            print(f"Current Tracker: {self.current_tracker}, Epoch: {self.epoch}")
             self._tell_tracker_my_files()
             self._reset_hb_timer()
-
         else:
-            # se não tem tracker nenhum, já inicia eleição
-            time.sleep(10)
-            print("No tracker found!")
+            # Se não tem tracker, inicia eleição
+            logging.info("No tracker found, starting election")
+            # Não precisa de sleep adicional aqui, pois já aguardamos 10s acima
             self._start_election()
 
-
     def _reset_hb_timer(self):
-        # cancela qualquer timer antigo
+        """Reinicia o timer de detecção de falha do tracker"""
+        # Cancela qualquer timer antigo
         if self.hb_timer:
             self.hb_timer.cancel()
-        # agenda novo timer para disparar _start_election
-        delay = random.uniform(0.15, 0.3)
-        self.hb_timer = threading.Timer(delay, self._start_election)
+
+        # Agenda novo timer para detecção de falha do tracker
+        delay = random.uniform(0.15, 0.3)  # 150-300ms conforme especificação
+        self.hb_timer = threading.Timer(delay, self._handle_tracker_failure)
         self.hb_timer.daemon = True
         self.hb_timer.start()
+        logging.debug(f"Peer {self.id}: Timer de heartbeat reiniciado para {delay:.2f}s")
+
+    def _handle_tracker_failure(self):
+        """Chamado quando o timer expira indicando falha no tracker"""
+        if self.is_tracker:
+            return  # Se eu sou o tracker, não faço nada
+
+        # logging.info(f"Peer {self.id}: Timer expirou, possível falha no tracker")
+
+        # Tenta contatar o tracker diretamente para confirmar falha
+        try:
+            if self.current_tracker:
+                tracker = Pyro5.api.Proxy(self.current_tracker)
+                tracker._pyroTimeout = 0.2
+                alive = tracker.ping()  # Método simples para testar conexão
+                if alive:
+                    # logging.info(f"Peer {self.id}: Falso alarme, tracker ainda está vivo")
+                    self._reset_hb_timer()
+                    return
+        except Exception as e:
+            logging.info(f"Peer {self.id}: Confirmado! Tracker não responde: {e}")
+
+        # Se chegou aqui, o tracker realmente falhou
+        logging.info(f"Peer {self.id}: Iniciando eleição por falha do tracker na época {self.epoch}")
+        self.current_tracker = None  # Limpa referência do tracker antigo
+        self._start_election()
 
     # ----------------------------------------------------------------
     # 2) Registro inicial de arquivos no tracker
@@ -72,180 +115,405 @@ class Peer:
             for f in files:
                 self.index.setdefault(f,set()).add(peer_id)
             return True
+        return False
 
     def _tell_tracker_my_files(self):
+        """Registra arquivos locais no tracker"""
+        if not self.current_tracker:
+            return
+
         try:
             tracker = Pyro5.api.Proxy(self.current_tracker)
-            tracker.register_all_files(self.id, list(self.files))
-            logging.info("Arquivos iniciais registrados no tracker")
-        except:
-            pass
+            tracker._pyroTimeout = 0.5
+            success = tracker.register_all_files(self.id, list(self.files))
+            if success:
+                logging.info(f"Peer {self.id}: Arquivos registrados no tracker")
+            else:
+                logging.warning(f"Peer {self.id}: Falha ao registrar arquivos no tracker")
+        except Exception as e:
+            logging.error(f"Peer {self.id}: Erro ao registrar arquivos no tracker: {e}")
+            # Se falhar ao contatar tracker, pode iniciar detecção de falha
+            self._handle_tracker_failure()
 
     # ----------------------------------------------------------------
     # 3) Eleição simples por Época+Maioria
     # ----------------------------------------------------------------
     def _start_election(self):
-        # **2) limpa estado de eleição antigo**
-        self.started_election = None
-        self.voted_for = None
-        self.votes = set()
+        """Inicia uma eleição para novo tracker"""
+        if self.election_in_progress:
+            logging.info(f"Peer {self.id}: Eleição já em andamento, ignorando")
+            return
 
+        self.election_in_progress = True
+
+        # Incrementa a época
+        self.epoch += 1
+        new_epoch = self.epoch
+
+        # Reinicia estados da eleição
+        self.voted_for = self.id  # Vota em si mesmo
+        self.votes = {self.id}    # Registra próprio voto
+
+        logging.info(f"Peer {self.id}: Iniciando eleição para época {new_epoch}")
+
+        # Descobre peers ativos
         ns = Pyro5.api.locate_ns(host="localhost", port=9090)
-        # pega apenas os peers cadastrados
         peers = {name: uri for name, uri in ns.list().items() if name.startswith("peer.")}
 
-        responded = set()
+        # Verifica quais peers estão vivos
+        self.peers_alive = set()
         for name, uri in peers.items():
             peer_num = int(name.split(".")[1])
             if peer_num == self.id:
                 continue
+
             try:
                 proxy = Pyro5.api.Proxy(uri)
                 proxy._pyroTimeout = 0.5
-                proxy.signal_alive(self.id)      # tenta saber se ele está vivo
-                responded.add(peer_num)          # só aqui confirmo que respondeu
+                if proxy.ping():  # Método simples de ping
+                    self.peers_alive.add(peer_num)
             except Exception as e:
-                print(f"Não conseguiu sinalizar alive para {name}: {e}")
-                pass
+                logging.info(f"Peer {self.id}: Peer {peer_num} não respondeu ao ping")
 
-        # agora sim guardo só quem respondeu
-        self.peers_alive = responded
-        total_participants = len(responded) + 1  # +1 é você mesmo
+        # Calcula maioria (incluindo a si mesmo)
+        total_participants = len(self.peers_alive) + 1
         majority = total_participants // 2 + 1
 
-        # se ainda não comecei eleição, marco época e voto em mim
-        if self.started_election is None:
-            self.epoch += 1
-            self.started_election = self.id
-            self.votes = {self.id}
+        logging.info(f"Peer {self.id}: Peers vivos: {self.peers_alive}, total: {total_participants}, maioria: {majority}")
 
-        # peço voto só a quem respondeu
-        for peer_num in responded:
+        # Solicita votos
+        for peer_num in self.peers_alive:
             try:
                 uri = peers[f"peer.{peer_num}"]
                 proxy = Pyro5.api.Proxy(uri)
                 proxy._pyroTimeout = 0.5
-                ok = proxy.start_election(self.id, self.epoch)
-                if ok:
+
+                # Pede voto para epoch atual
+                if proxy.request_vote(self.id, new_epoch):
                     self.votes.add(peer_num)
-            except Exception:
-                print(f"Não votou {name}: {e}")
-                pass
+                    logging.info(f"Peer {self.id}: Recebeu voto do peer {peer_num}")
+            except Exception as e:
+                logging.error(f"Peer {self.id}: Erro ao solicitar voto do peer {peer_num}: {e}")
 
-        # checa maioria dinamicamente
+        # Verifica se obteve maioria
         if len(self.votes) >= majority:
+            logging.info(f"Peer {self.id}: Eleito com {len(self.votes)} votos, maioria: {majority}")
             self._become_tracker()
-
-
+        else:
+            logging.info(f"Peer {self.id}: Não eleito, obteve apenas {len(self.votes)} votos, necessário: {majority}")
+            # Finaliza estado da eleição
+            self.election_in_progress = False
 
     @Pyro5.api.expose
-    def signal_alive(self, peer_id):
-        self.peers_alive.add(peer_id)
+    def ping(self):
+        """Método simples para testar se o peer está vivo"""
         return True
 
     @Pyro5.api.expose
-    def start_election(self, cand, ep):
-        if ep>self.epoch and self.voted_for is None:
-            self.epoch, self.voted_for = ep, cand
-            return True
-        return False
+    def request_vote(self, candidate_id, epoch):
+        """Solicita voto para eleição"""
+        logging.info(f"Peer {self.id}: Recebeu solicitação de voto de {candidate_id} para época {epoch}, minha época: {self.epoch}")
 
-    @Pyro5.api.expose
-    def receive_vote(self, voter, ep):
-        if ep==self.epoch:
-            self.votes.add(voter)
+        if epoch > self.epoch:
+            # Epoch maior, atualiza e vota
+            self.epoch = epoch
+            self.voted_for = candidate_id
+            # logging.info(f"Peer {self.id}: Votou em {candidate_id} para época {epoch}")
             return True
+        elif epoch == self.epoch and self.voted_for is None:
+            # Mesma época mas não votou ainda
+            self.voted_for = candidate_id
+            # logging.info(f"Peer {self.id}: Votou em {candidate_id} na mesma época {epoch}")
+            return True
+
+        # logging.info(f"Peer {self.id}: Não votou em {candidate_id} (época atual: {self.epoch}, já votou em: {self.voted_for})")
         return False
 
     def _become_tracker(self):
+        """Assume papel de tracker após ser eleito"""
         self.is_tracker = True
-        self.current_tracker = None
         self.voted_for = None
-        self.started_election = None
+        self.election_in_progress = False
 
+        # Inicializa o índice
         self.index = {}
         tracking_name = f"Tracker_Epoca_{self.epoch}"
-        ns = Pyro5.api.locate_ns(host="localhost", port=9090)
-        ns.register(tracking_name, daemon.uriFor(self))  # registra novo tracker
-        print(f"Eleito tracker da época {self.epoch}: Peer {self.id} → {tracking_name}")
-        self._start_heartbeat()  # dispara os heartbeats
 
+        # Registra no NameServer
+        ns = Pyro5.api.locate_ns(host="localhost", port=9090)
+        my_uri = daemon.uriFor(self)
+        ns.register(tracking_name, my_uri)
+
+        # Atualiza sua própria referência ao tracker
+        self.current_tracker = my_uri
+
+        logging.info(f"ELEITO TRACKER DA ÉPOCA {self.epoch}: Peer {self.id} → {tracking_name}")
+
+        # Inicializa o índice coletando arquivos de todos os peers
+        self._collect_all_files()
+
+        # Inicia envio de heartbeats
+        self._start_heartbeat()
+
+        # Cancela timer de detecção
+        if self.hb_timer:
+            self.hb_timer.cancel()
+            self.hb_timer = None
+
+    def _collect_all_files(self):
+        """Coleta arquivos de todos os peers"""
+        if not self.is_tracker:
+            return
+
+        ns = Pyro5.api.locate_ns(host="localhost", port=9090)
+        peers = {name: uri for name, uri in ns.list().items() if name.startswith("peer.")}
+
+        # Adiciona os próprios arquivos
+        for f in self.files:
+            self.index.setdefault(f, set()).add(self.id)
+
+        # Coleta arquivos dos outros peers
+        for name, uri in peers.items():
+            if name == f"peer.{self.id}":
+                continue
+
+            peer_id = int(name.split(".")[1])
+            try:
+                proxy = Pyro5.api.Proxy(uri)
+                proxy._pyroTimeout = 0.5
+                files = proxy.get_file_list()
+                for f in files:
+                    self.index.setdefault(f, set()).add(peer_id)
+            except Exception as e:
+                logging.error(f"Erro ao coletar arquivos do peer {peer_id}: {e}")
+
+    @Pyro5.api.expose
+    def get_file_list(self):
+        """Retorna lista de arquivos locais"""
+        return list(self.files)
 
     # ----------------------------------------------------------------
     # 4) Heartbeat do Tracker + Timeout nos Peers
     # ----------------------------------------------------------------
     def _start_heartbeat(self):
+        """Inicia envio periódico de heartbeats aos peers"""
         def hb_loop():
-            ns = Pyro5.api.locate_ns(host="localhost", port=9090)
             while self.is_tracker:
-                for name,uri in ns.list().items():
-                    if name.startswith("peer.") and name!=f"peer.{self.id}":
+                try:
+                    ns = Pyro5.api.locate_ns(host="localhost", port=9090)
+                    peers = {name: uri for name, uri in ns.list().items() if name.startswith("peer.")}
+
+                    for name, uri in peers.items():
+                        if name == f"peer.{self.id}":
+                            continue  # Não envia heartbeat para si mesmo
+
                         try:
-                            p=Pyro5.api.Proxy(uri); p.receive_heartbeat(self.id,self.epoch)
-                        except:
-                            print(f"Peer {name} não recebeu heartbeat")
+                            peer_proxy = Pyro5.api.Proxy(uri)
+                            peer_proxy._pyroTimeout = 0.2
+                            peer_proxy.receive_heartbeat(self.id, self.epoch)
+                        except Exception as e:
                             pass
-                time.sleep(0.1)
-        threading.Thread(target=hb_loop,daemon=True).start()
+
+                    # Heartbeat a cada 100ms conforme especificação
+                    time.sleep(0.1)
+                except Exception as e:
+                    logging.error(f"Erro no loop de heartbeat: {e}")
+
+        hb_thread = threading.Thread(target=hb_loop, daemon=True)
+        hb_thread.start()
+        logging.info(f"Tracker {self.id}: Iniciou envio de heartbeats")
 
     @Pyro5.api.expose
-    def receive_heartbeat(self, tracker_id, ep):
-        if ep >= self.epoch:
-            # atualiza época e cancela/reinicia o timer
-            self.epoch = ep
+    def receive_heartbeat(self, tracker_id, epoch):
+        """Recebe heartbeat do tracker atual"""
+        if self.is_tracker:
+            # Se sou tracker, ignoro heartbeats de outros
+            return False
+
+        if epoch >= self.epoch:
+            # Atualiza época se necessário
+            if epoch > self.epoch:
+                logging.info(f"Peer {self.id}: Atualizando época de {self.epoch} para {epoch}")
+                self.epoch = epoch
+                self.voted_for = None  # Reseta voto para nova época
+
+            # Reinicia timer de detecção
             self._reset_hb_timer()
-        return True
+
+            # Limpa flags de falha/eleição
+            self.tracker_failure_detected = False
+            self.election_in_progress = False
+
+            return True
+        else:
+            # logging.info(f"Peer {self.id}: Ignorou heartbeat da época {epoch} (menor que {self.epoch})")
+            return False
 
     # ----------------------------------------------------------------
     # 5) File-sharing: index, search, download
     # ----------------------------------------------------------------
     @Pyro5.api.expose
     def update_file_index(self, peer_id, filename, is_add):
+        """Atualiza o índice de arquivos (adição/remoção)"""
         if self.is_tracker:
-            if is_add: self.index.setdefault(filename,set()).add(peer_id)
-            else:   self.index.get(filename,set()).discard(peer_id)
+            if is_add:
+                self.index.setdefault(filename, set()).add(peer_id)
+                logging.info(f"Tracker {self.id}: Adicionado arquivo {filename} do peer {peer_id}")
+            else:
+                if filename in self.index:
+                    self.index[filename].discard(peer_id)
+                    logging.info(f"Tracker {self.id}: Removido arquivo {filename} do peer {peer_id}")
             return True
+        return False
 
     @Pyro5.api.expose
     def search_file(self, filename):
+        """Busca por um arquivo no índice"""
         if self.is_tracker:
-            return list(self.index.get(filename,[]))
+            peers = list(self.index.get(filename, []))
+            logging.info(f"Tracker {self.id}: Busca por '{filename}' retornou peers {peers}")
+            return peers
+        return []
 
     @Pyro5.api.expose
     def download_file(self, filename):
+        """Fornece arquivo para download por outro peer"""
         if filename in self.files:
-            return open(os.path.join(self.dir,filename),"rb").read()
+            try:
+                filepath = os.path.join(self.dir, filename)
+                with open(filepath, "rb") as f:
+                    data = f.read()
+                logging.info(f"Peer {self.id}: Enviando arquivo {filename}")
+                return data
+            except Exception as e:
+                logging.error(f"Erro ao ler arquivo {filename}: {e}")
+        return None
 
     # ----------------------------------------------------------------
     # 6) Comandos usuário
     # ----------------------------------------------------------------
     def cli(self):
+        print(f"\nPeer {self.id} iniciado. Digite 'help' para ver os comandos disponíveis.\n")
+
         while True:
             cmd = input(f"Peer-{self.id}> ").split()
-            if not cmd: continue
-            op = cmd[0]
-            if op=="list":
-                print(self.files)
-            elif op=="search" and len(cmd)>1:
-                peers = (self.search_file(cmd[1]) if self.is_tracker
-                         else Pyro5.api.Proxy(self.current_tracker).search_file(cmd[1]))
-                print("Árvore:",peers)
-            elif op=="download" and len(cmd)>1:
-                src = random.choice(peers)
-                uri = Pyro5.api.locate_ns().lookup(f"peer.{src}")
-                data = Pyro5.api.Proxy(uri).download_file(cmd[1])
-                if data:
-                    open(os.path.join(self.dir,cmd[1]),"wb").write(data)
-                    self.files.add(cmd[1])
-                    print("Baixado com sucesso")
-            elif op in ("exit","quit"):
-                break
-            else:
-                print("comandos: list, search <f>, download <f>, exit")
+            if not cmd:
+                continue
 
-if __name__=="__main__":
-    if len(sys.argv)!=2:
-        print("Uso: python peer.py <id>"); sys.exit(1)
+            op = cmd[0].lower()
+
+            if op == "list":
+                print(f"Arquivos locais: {self.files}")
+
+            elif op == "search" and len(cmd) > 1:
+                filename = cmd[1]
+                try:
+                    if self.is_tracker:
+                        peers = self.search_file(filename)
+                    else:
+                        if not self.current_tracker:
+                            print("Tracker não disponível")
+                            continue
+
+                        tracker = Pyro5.api.Proxy(self.current_tracker)
+                        tracker._pyroTimeout = 0.5
+                        peers = tracker.search_file(filename)
+
+                    if peers:
+                        print(f"Arquivo '{filename}' disponível nos peers: {peers}")
+                    else:
+                        print(f"Arquivo '{filename}' não encontrado na rede")
+                except Exception as e:
+                    print(f"Erro na busca: {e}")
+
+            elif op == "download" and len(cmd) > 1:
+                filename = cmd[1]
+                try:
+                    # Busca o arquivo
+                    if self.is_tracker:
+                        peers = self.search_file(filename)
+                    else:
+                        if not self.current_tracker:
+                            print("Tracker não disponível")
+                            continue
+
+                        tracker = Pyro5.api.Proxy(self.current_tracker)
+                        tracker._pyroTimeout = 0.5
+                        peers = tracker.search_file(filename)
+
+                    if not peers:
+                        print(f"Arquivo '{filename}' não encontrado na rede")
+                        continue
+
+                    # Filtra para não baixar de si mesmo
+                    available_peers = [p for p in peers if p != self.id]
+                    if not available_peers:
+                        print(f"Você já possui o arquivo '{filename}'")
+                        continue
+
+                    # Escolhe um peer aleatório
+                    src = random.choice(available_peers)
+                    print(f"Baixando '{filename}' do peer {src}...")
+
+                    # Baixa o arquivo
+                    ns = Pyro5.api.locate_ns()
+                    uri = ns.lookup(f"peer.{src}")
+                    peer_proxy = Pyro5.api.Proxy(uri)
+                    peer_proxy._pyroTimeout = 5.0  # Timeout maior para download
+                    data = peer_proxy.download_file(filename)
+
+                    if data:
+                        # Salva localmente
+                        with open(os.path.join(self.dir, filename), "wb") as f:
+                            f.write(data)
+                        self.files.add(filename)
+
+                        # Notifica o tracker
+                        if not self.is_tracker:
+                            tracker = Pyro5.api.Proxy(self.current_tracker)
+                            tracker.update_file_index(self.id, filename, True)
+                        else:
+                            self.update_file_index(self.id, filename, True)
+
+                        print(f"Arquivo '{filename}' baixado com sucesso")
+                    else:
+                        print(f"Falha ao baixar arquivo '{filename}'")
+
+                except Exception as e:
+                    print(f"Erro no download: {e}")
+
+            elif op == "status":
+                print(f"\n--- STATUS DO PEER {self.id} ---")
+                print(f"Época atual: {self.epoch}")
+                print(f"É tracker: {self.is_tracker}")
+                print(f"Tracker atual: {self.current_tracker}")
+                print(f"Arquivos locais: {self.files}")
+                print(f"Peers vivos conhecidos: {self.peers_alive}")
+                if self.is_tracker:
+                    print(f"Índice de arquivos: {self.index}")
+                print("")
+
+            elif op == "help":
+                print("\nComandos disponíveis:")
+                print("  list             - listar arquivos locais")
+                print("  search <arquivo> - buscar arquivo na rede")
+                print("  download <arq>   - baixar arquivo")
+                print("  status           - mostrar informações do peer")
+                print("  help             - mostrar esta ajuda")
+                print("  exit/quit        - sair\n")
+
+            elif op in ("exit", "quit"):
+                break
+
+            else:
+                print("Comando desconhecido. Digite 'help' para ver os comandos disponíveis.")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Uso: python peer.py <id>")
+        sys.exit(1)
+
     peer = Peer(int(sys.argv[1]))
     daemon = Pyro5.api.Daemon(host="localhost", port=0)
     threading.Thread(target=daemon.requestLoop, daemon=True).start()
