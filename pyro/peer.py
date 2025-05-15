@@ -30,11 +30,57 @@ class Peer:
         # Contagem de peers na rede
         self.expected_peers = 5  # Total esperado de peers
 
-        logging.info(f"Peer {self.id} init. Local files: {self.files}")
+        print(f"Peer {self.id} init. Local files: {self.files}")
 
     # ----------------------------------------------------------------
     # 1) Registro no NameServer e descoberta de Tracker
     # ----------------------------------------------------------------
+    def _check_tracker_update(self):
+        """Verifica se há um tracker mais recente registrado no NameServer"""
+        if self.is_tracker:
+            return  # Se sou o tracker, não preciso verificar
+
+        try:
+            ns = Pyro5.api.locate_ns(host="localhost", port=9090)
+
+            # Busca maior Tracker_Epoca_X
+            best = 0
+            best_tracker = None
+            for name, uri in ns.list().items():
+                if name.startswith("Tracker_Epoca_"):
+                    x = int(name.rsplit("_", 1)[1])
+                    if x > best:
+                        best, best_tracker = x, uri
+
+            # Se encontrou tracker com época maior, atualiza
+            if best_tracker and best > self.epoch:
+                logging.info(f"Peer {self.id}: Descobriu tracker mais recente (época {best} > {self.epoch})")
+                self.epoch = best
+                self.current_tracker = best_tracker
+                self.voted_for = None
+                self._reset_hb_timer()
+
+                # Registra seus arquivos no novo tracker
+                self._tell_tracker_my_files()
+
+
+        except Exception as e:
+            logging.error(f"Peer {self.id}: Erro ao verificar atualizações de tracker: {e}")
+
+            
+
+    def _start_periodic_tracker_check(self):
+        """Inicia verificação periódica do NameServer para atualizações de tracker"""
+        def check_loop():
+            while not self.is_tracker:
+                time.sleep(1.5)  # Verifica a cada 1.5 segundos
+                self._check_tracker_update()
+
+        check_thread = threading.Thread(target=check_loop, daemon=True)
+        check_thread.start()
+        logging.info(f"Peer {self.id}: Iniciou verificação periódica de tracker")
+
+# Modifique o método connect para iniciar a verificação periódica
     def connect(self):
         ns = Pyro5.api.locate_ns(host="localhost", port=9090)
         uri = daemon.register(self)
@@ -44,16 +90,16 @@ class Peer:
         # Aguarda um pouco antes de verificar o tracker
         # Sleep maior para garantir que todos os 5 peers tenham tempo de se conectar
         # antes que qualquer eleição comece
-        time.sleep(10)
+        time.sleep(7)
 
         # Busca maior Tracker_Epoca_X
         best = 0
         best_tracker = None
-        for name, u in ns.list().items():
+        for name, uri in ns.list().items():
             if name.startswith("Tracker_Epoca_"):
                 x = int(name.rsplit("_",1)[1])
                 if x > best:
-                    best, best_tracker = x, u
+                    best, best_tracker = x, uri
 
         if best_tracker:
             # Se existe tracker, atualiza a época e se registra
@@ -68,6 +114,9 @@ class Peer:
             # Não precisa de sleep adicional aqui, pois já aguardamos 10s acima
             self._start_election()
 
+        # Inicia verificação periódica de atualizações do tracker
+        self._start_periodic_tracker_check()
+
     def _reset_hb_timer(self):
         """Reinicia o timer de detecção de falha do tracker"""
         # Cancela qualquer timer antigo
@@ -75,7 +124,8 @@ class Peer:
             self.hb_timer.cancel()
 
         # Agenda novo timer para detecção de falha do tracker
-        delay = random.uniform(0.15, 0.3)  # 150-300ms conforme especificação
+        delay = random.uniform(0.5, 1)  # 150-300ms conforme especificação
+        # print(f"Peer {self.id}, delay: {delay}")
         self.hb_timer = threading.Timer(delay, self._handle_tracker_failure)
         self.hb_timer.daemon = True
         self.hb_timer.start()
@@ -235,6 +285,7 @@ class Peer:
         self.voted_for = None
         self.election_in_progress = False
 
+
         # Inicializa o índice
         self.index = {}
         tracking_name = f"Tracker_Epoca_{self.epoch}"
@@ -252,13 +303,15 @@ class Peer:
         # Inicializa o índice coletando arquivos de todos os peers
         self._collect_all_files()
 
-        # Inicia envio de heartbeats
-        self._start_heartbeat()
-
         # Cancela timer de detecção
         if self.hb_timer:
             self.hb_timer.cancel()
             self.hb_timer = None
+
+        # Inicia envio de heartbeats
+        self._start_heartbeat()
+
+
 
     def _collect_all_files(self):
         """Coleta arquivos de todos os peers"""
@@ -461,12 +514,35 @@ class Peer:
                     peer_proxy = Pyro5.api.Proxy(uri)
                     peer_proxy._pyroTimeout = 5.0  # Timeout maior para download
                     data = peer_proxy.download_file(filename)
+                    # data = self.download_file(filename)
 
                     if data:
-                        # Salva localmente
-                        with open(os.path.join(self.dir, filename), "wb") as f:
-                            f.write(data)
-                        self.files.add(filename)
+                        try:
+                            if not isinstance(data, bytes):
+                                if hasattr(Pyro5.api.serpent, 'tobytes') and hasattr(data, 'data'):
+                                    data = Pyro5.api.serpent.tobytes(data.data)
+                                elif isinstance(data, dict) and 'data' in data:
+                                    # Tenta extrair os bytes do dicionário retornado pelo Pyro
+                                    import base64
+                                    data = base64.b64decode(data['data'])
+                                else:
+                                    print(f"Aviso: Formato de dados inesperado: {type(data)}")
+                                    # Se tudo falhar, tenta serializar e converter para bytes
+                                    import pickle
+                                    data = pickle.dumps(data)
+
+                                # Salva localmente
+                                with open(os.path.join(self.dir, filename), "wb") as f:
+                                    f.write(data)
+                                self.files.add(filename)
+
+                        except Exception as e:
+                            print(f"Erro ao processar dados: {e}")
+                            import traceback
+                            traceback.print_exc()
+
+                            continue
+
 
                         # Notifica o tracker
                         if not self.is_tracker:
