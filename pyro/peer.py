@@ -35,52 +35,6 @@ class Peer:
     # ----------------------------------------------------------------
     # 1) Registro no NameServer e descoberta de Tracker
     # ----------------------------------------------------------------
-    def _check_tracker_update(self):
-        """Verifica se há um tracker mais recente registrado no NameServer"""
-        if self.is_tracker:
-            return  # Se sou o tracker, não preciso verificar
-
-        try:
-            ns = Pyro5.api.locate_ns(host="localhost", port=9090)
-
-            # Busca maior Tracker_Epoca_X
-            best = 0
-            best_tracker = None
-            for name, uri in ns.list().items():
-                if name.startswith("Tracker_Epoca_"):
-                    x = int(name.rsplit("_", 1)[1])
-                    if x > best:
-                        best, best_tracker = x, uri
-
-            # Se encontrou tracker com época maior, atualiza
-            if best_tracker and best > self.epoch:
-                logging.info(f"Peer {self.id}: Descobriu tracker mais recente (época {best} > {self.epoch})")
-                self.epoch = best
-                self.current_tracker = best_tracker
-                self.voted_for = None
-                self._reset_hb_timer()
-
-                # Registra seus arquivos no novo tracker
-                self._tell_tracker_my_files()
-
-
-        except Exception as e:
-            logging.error(f"Peer {self.id}: Erro ao verificar atualizações de tracker: {e}")
-
-            
-
-    def _start_periodic_tracker_check(self):
-        """Inicia verificação periódica do NameServer para atualizações de tracker"""
-        def check_loop():
-            while not self.is_tracker:
-                time.sleep(1.5)  # Verifica a cada 1.5 segundos
-                self._check_tracker_update()
-
-        check_thread = threading.Thread(target=check_loop, daemon=True)
-        check_thread.start()
-        logging.info(f"Peer {self.id}: Iniciou verificação periódica de tracker")
-
-# Modifique o método connect para iniciar a verificação periódica
     def connect(self):
         ns = Pyro5.api.locate_ns(host="localhost", port=9090)
         uri = daemon.register(self)
@@ -95,11 +49,11 @@ class Peer:
         # Busca maior Tracker_Epoca_X
         best = 0
         best_tracker = None
-        for name, uri in ns.list().items():
+        for name, u in ns.list().items():
             if name.startswith("Tracker_Epoca_"):
                 x = int(name.rsplit("_",1)[1])
                 if x > best:
-                    best, best_tracker = x, uri
+                    best, best_tracker = x, u
 
         if best_tracker:
             # Se existe tracker, atualiza a época e se registra
@@ -113,9 +67,6 @@ class Peer:
             logging.info("No tracker found, starting election")
             # Não precisa de sleep adicional aqui, pois já aguardamos 10s acima
             self._start_election()
-
-        # Inicia verificação periódica de atualizações do tracker
-        self._start_periodic_tracker_check()
 
     def _reset_hb_timer(self):
         """Reinicia o timer de detecção de falha do tracker"""
@@ -285,7 +236,6 @@ class Peer:
         self.voted_for = None
         self.election_in_progress = False
 
-
         # Inicializa o índice
         self.index = {}
         tracking_name = f"Tracker_Epoca_{self.epoch}"
@@ -300,6 +250,9 @@ class Peer:
 
         logging.info(f"ELEITO TRACKER DA ÉPOCA {self.epoch}: Peer {self.id} → {tracking_name}")
 
+        # Notifica todos os peers sobre o novo tracker
+        self._notify_all_peers_about_new_tracker()
+
         # Inicializa o índice coletando arquivos de todos os peers
         self._collect_all_files()
 
@@ -310,6 +263,50 @@ class Peer:
 
         # Inicia envio de heartbeats
         self._start_heartbeat()
+
+    def _notify_all_peers_about_new_tracker(self):
+        """Notifica todos os peers sobre o novo tracker"""
+        if not self.is_tracker:
+            return
+
+        ns = Pyro5.api.locate_ns(host="localhost", port=9090)
+        peers = {name: uri for name, uri in ns.list().items() if name.startswith("peer.")}
+
+        for name, uri in peers.items():
+            if name == f"peer.{self.id}":
+                continue  # Não notifica a si mesmo
+
+            peer_id = int(name.split(".")[1])
+            try:
+                proxy = Pyro5.api.Proxy(uri)
+                proxy._pyroTimeout = 0.5
+                success = proxy.update_tracker_reference(self.current_tracker, self.epoch)
+                if success:
+                    logging.info(f"Tracker {self.id}: Peer {peer_id} atualizado com sucesso")
+                else:
+                    logging.warning(f"Tracker {self.id}: Peer {peer_id} rejeitou atualização")
+            except Exception as e:
+                logging.error(f"Tracker {self.id}: Erro ao notificar peer {peer_id}: {e}")
+
+    @Pyro5.api.expose
+    def update_tracker_reference(self, tracker_uri, new_epoch):
+        """Atualiza a referência do tracker em um nó"""
+        logging.info(f"Peer {self.id}: Solicitação para atualizar tracker para época {new_epoch} (atual: {self.epoch})")
+
+        if new_epoch >= self.epoch:
+            old_epoch = self.epoch
+            self.epoch = new_epoch
+            self.current_tracker = tracker_uri
+            self.voted_for = None
+
+            # Reinicia o timer de heartbeat
+            self._reset_hb_timer()
+
+            logging.info(f"Peer {self.id}: Atualizou referência de tracker, de época {old_epoch} para {new_epoch}")
+            return True
+        else:
+            logging.warning(f"Peer {self.id}: Rejeitou atualização para tracker com época anterior ({new_epoch} < {self.epoch})")
+            return False
 
 
 
