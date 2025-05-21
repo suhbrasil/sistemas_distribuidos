@@ -6,6 +6,9 @@ import base64, pickle, os
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
+    # significa que temos um novo tracker
+    # consulta no NS a URI do tracker, cria proxy, registrar aquivos no tracker
+    # eliminar ping
 
 class Peer:
     def __init__(self, peer_id):
@@ -91,10 +94,7 @@ class Peer:
             if self.current_tracker:
                 tracker = Pyro5.api.Proxy(self.current_tracker)
                 tracker._pyroTimeout = 0.2
-                alive = tracker.ping()  # Método simples para testar conexão
-                if alive:
-                    self._reset_hb_timer()
-                    return
+                self._reset_hb_timer()
         except Exception as e:
             logging.info(f"Peer {self.id}: Confirmado! Tracker não responde: {e}")
 
@@ -353,7 +353,7 @@ class Peer:
                         except Exception as e:
                             pass
 
-                    # Heartbeat a cada 100ms conforme especificação
+                    # Heartbeat a cada 100ms
                     time.sleep(0.1)
                 except Exception as e:
                     logging.error(f"Erro no loop de heartbeat: {e}")
@@ -373,6 +373,16 @@ class Peer:
             # Atualiza época se necessário
             if epoch > self.epoch:
                 logging.info(f"Peer {self.id}: Atualizando época de {self.epoch} para {epoch}")
+
+
+                # Busca a uri do tracker no ns e registra os arquivos
+                ns = Pyro5.api.locate_ns(host="localhost", port=9090)
+                for name, uri in ns.list().items():
+                    if name.startswith("Tracker_Epoca_"):
+                        self.current_tracker = uri
+                self._tell_tracker_my_files()
+
+
                 self.epoch = epoch
                 self.voted_for = None  # Reseta voto para nova época
 
