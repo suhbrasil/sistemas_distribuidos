@@ -22,7 +22,6 @@ app.get('/itinerarios', (req, res) => {
         (!embarkPort || cruise.embarkPort === embarkPort &&
             cruise.cabinsAvailable > 0)
     );
-    console.log("Cabines: ", filtered);
     res.json(filtered);
 });
 
@@ -52,9 +51,7 @@ app.listen(PORT, () => {
                     const { cruiseId, cabins } = JSON.parse(msg.content.toString());
 
                     const cruise = cruises.find(c => c.cruiseId === cruiseId);
-                    console.log("Cabines antes: ", cruise.cabinsAvailable)
                     if (cruise) cruise.cabinsAvailable -= Number(cabins);
-                    console.log("Cabines depois: ", cruise.cabinsAvailable)
 
                     ch.ack(msg);
                 },

@@ -12,7 +12,7 @@ const {
     QUEUE_REJECTED,
     QUEUE_TICKET
 } = require('./config');
-const { verifyPayload } = require('./verify');
+// const { verifyPayload } = require('./verify');
 const fetch = require('node-fetch');
 
 // allow your frontend origin
@@ -66,13 +66,13 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
         });
 
         // Criar reserva
-        app.post('/reservas', (req, res) => {
-            const { cruiseId, embarkDate, passengers, cabins } = req.body;
-            if (!cruiseId || !embarkDate || !passengers || !cabins) {
+        app.post('/reservas', async (req, res) => {
+            const { cruiseId, embarkDate, passengers, cabins, valor, moeda, comprador } = req.body;
+            if (!cruiseId || !embarkDate || !passengers || !cabins || !valor || !moeda || !comprador) {
                 return res.status(400).json({ error: 'Campos faltando' });
             }
             const id = uuidv4();
-            const r = { id, cruiseId, embarkDate, passengers, cabins, status: 'PENDING' };
+            const r = { id, cruiseId, embarkDate, passengers, cabins, valor, moeda, comprador, status: 'PENDING' };
             reservations.set(id, r);
 
             // Publica evento reserva-criada
@@ -84,9 +84,31 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
             );
             console.log(`[>] Publicado reserva-criada: ${id}`);
 
-            // Retorna link de pagamento
-            const paymentLink = `http://localhost:3001/pagamento/${id}`;
-            res.status(201).json({ reservaId: id, paymentLink });
+            // Chama o MS Pagamento para obter o link
+            try {
+                const resp = await fetch('http://localhost:4001/pagamento', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        reservaId: id,
+                        valor,
+                        moeda,
+                        comprador
+                    })
+                });
+                if (!resp.ok) {
+                    throw new Error('Falha ao solicitar link de pagamento');
+                }
+                const { paymentLink, transactionId } = await resp.json();
+
+                r.transactionId = transactionId;
+
+                return res.status(201).json({ reservaId: id, paymentLink });
+            } catch (err) {
+                console.error('Erro ao integrar com MS Pagamento:', err);
+                // Ainda retorna a reserva criada, mas sem link
+                return res.status(201).json({ reservaId: id, paymentLink: null, error: 'Erro ao solicitar pagamento' });
+            }
         });
 
         // Consultar status da reserva
@@ -97,7 +119,7 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
         });
 
         // Inicia HTTP
-        const PORT = process.env.PORT || 3000;
+        const PORT = 3000;
         app.listen(PORT, () => console.log(`MS Reserva na porta ${PORT}`));
 
         //
@@ -121,15 +143,6 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
                     } catch {
                         console.error('Payload inválido em', queue);
                         return ch.ack(msg);
-                    }
-
-                    // Verifica assinatura nos eventos de pagamento
-                    if (queue === QUEUE_APPROVED || queue === QUEUE_REJECTED) {
-                        const ok = await verifyPayload(data);
-                        if (!ok) {
-                            console.error('Assinatura inválida em', queue, data);
-                            return ch.ack(msg);
-                        }
                     }
 
                     // Atualiza estado local da reserva

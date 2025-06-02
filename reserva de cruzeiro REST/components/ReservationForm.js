@@ -3,6 +3,7 @@ import { useState } from 'react';
 export default function ReservationForm({ itinerary, onSuccess }) {
     const [passengers, setPassengers] = useState(1);
     const [cabins, setCabins] = useState(1);
+    const [comprador, setComprador] = useState({ nome: '', email: '' });
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -14,6 +15,9 @@ export default function ReservationForm({ itinerary, onSuccess }) {
                 embarkDate: itinerary.embarkDate,
                 passengers: Number(passengers),
                 cabins: Number(cabins),
+                valor: itinerary.pricePerPerson,
+                moeda: 'BRL',
+                comprador: comprador,
             }),
         });
         const data = await res.json();
@@ -41,6 +45,30 @@ export default function ReservationForm({ itinerary, onSuccess }) {
                     min="1"
                     value={cabins}
                     onChange={(e) => setCabins(e.target.value)}
+                    className="w-full border rounded p-2"
+                    required
+                />
+            </div>
+             <div>
+                <label className="block mb-1">Nome do comprador</label>
+                <input
+                    type="text"
+                    value={comprador.nome}
+                    onChange={(e) =>
+                        setComprador({ ...comprador, nome: e.target.value })
+                    }
+                    className="w-full border rounded p-2"
+                    required
+                />
+            </div>
+            <div>
+                <label className="block mb-1">Email do comprador</label>
+                <input
+                    type="email"
+                    value={comprador.email}
+                    onChange={(e) =>
+                        setComprador({ ...comprador, email: e.target.value })
+                    }
                     className="w-full border rounded p-2"
                     required
                 />

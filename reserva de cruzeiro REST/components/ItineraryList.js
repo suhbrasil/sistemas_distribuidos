@@ -10,6 +10,7 @@ export default function ItineraryList({ itineraries, onSelect }) {
                     </p>
                     <p>Duração: {it.duration} noites</p>
                     <p>Preço por pessoa: R$ {it.pricePerPerson}</p>
+                    <p>Cabines disponíveis: {it.cabinsAvailable}</p>
 
 
                     {/* New field: visitedPlaces */}

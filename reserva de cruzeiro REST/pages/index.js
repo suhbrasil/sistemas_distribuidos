@@ -50,7 +50,7 @@ export default function Home() {
                             target="_blank"
                             rel="noopener noreferrer"
                         >
-                            Pagar Agora
+                            {reservationInfo.paymentLink}
                         </a>
                     </p>
                 </div>

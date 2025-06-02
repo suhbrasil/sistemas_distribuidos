@@ -1,0 +1,15 @@
+{
+  "name": "payment-external",
+  "version": "1.0.0",
+  "description": "Sistema de pagamento externo simulado para o trabalho de Reserva de Cruzeiros",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "Seu Nome",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.1.0",
+    "node-fetch": "^2.7.0"
+  }
+}
