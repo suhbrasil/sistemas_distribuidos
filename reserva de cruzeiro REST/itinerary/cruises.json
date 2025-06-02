@@ -1,0 +1,57 @@
+[
+    {
+      "cruiseId": "cruzeiro-12",
+      "embarkDate": "2025-06-15",
+      "shipName": "Navio Estelar",
+      "embarkPort": "Porto Rio",
+      "disembarkPort": "Porto Santos",
+      "visitedPlaces": ["Ilha Bela", "Angra dos Reis", "Paraty"],
+      "cabinsAvailable": 1,
+      "duration": 5,
+      "pricePerPerson": 1200
+    },
+    {
+      "cruiseId": "cruzeiro-13",
+      "embarkDate": "2025-07-10",
+      "shipName": "Navio Coral",
+      "embarkPort": "Porto Santos",
+      "disembarkPort": "Porto Recife",
+      "visitedPlaces": ["Salvador", "Maceió", "Natal"],
+      "cabinsAvailable": 15,
+      "duration": 8,
+      "pricePerPerson": 1500
+    },
+    {
+      "cruiseId": "cruzeiro-14",
+      "embarkDate": "2025-08-05",
+      "shipName": "Navio Atlântico",
+      "embarkPort": "Porto Fortaleza",
+      "disembarkPort": "Porto Salvador",
+      "visitedPlaces": ["Fernando de Noronha", "Ilhéus"],
+      "cabinsAvailable": 10,
+      "duration": 6,
+      "pricePerPerson": 1350
+    },
+    {
+      "cruiseId": "cruzeiro-15",
+      "embarkDate": "2025-09-20",
+      "shipName": "Navio do Sol",
+      "embarkPort": "Porto Vitória",
+      "disembarkPort": "Porto Rio",
+      "visitedPlaces": ["Búzios", "Cabo Frio"],
+      "cabinsAvailable": 30,
+      "duration": 4,
+      "pricePerPerson": 950
+    },
+    {
+      "cruiseId": "cruzeiro-16",
+      "embarkDate": "2025-10-12",
+      "shipName": "Navio Imperial",
+      "embarkPort": "Porto Recife",
+      "disembarkPort": "Porto Belém",
+      "visitedPlaces": ["João Pessoa", "Teresina", "São Luís"],
+      "cabinsAvailable": 50,
+      "duration": 10,
+      "pricePerPerson": 1800
+    }
+  ]

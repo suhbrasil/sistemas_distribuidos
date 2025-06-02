@@ -1,0 +1,32 @@
+[
+  {
+    "destination": "Salvador",
+    "start_date": "2025-06-14",
+    "end_date": "2025-06-18",
+    "price": "2305.92"
+  },
+  {
+    "destination": "Maceio",
+    "start_date": "2025-06-27",
+    "end_date": "2025-06-30",
+    "price": "3500.48"
+  },
+  {
+    "destination": "Natal",
+    "start_date": "2025-06-26",
+    "end_date": "2025-07-04",
+    "price": "4987.76"
+  },
+  {
+    "destination": "Paraty",
+    "start_date": "2025-05-25",
+    "end_date": "2025-05-31",
+    "price": "2262.33"
+  },
+  {
+    "destination": "Ilheus",
+    "start_date": "2025-06-15",
+    "end_date": "2025-06-21",
+    "price": "4104.27"
+  }
+]

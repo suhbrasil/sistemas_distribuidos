@@ -1,0 +1,44 @@
+{
+  "name": "js-crypto-rsa",
+  "version": "1.0.7",
+  "description": "Universal Module for RSA Cryptography (RSA-OAEP and RSASSA-PSS/PKCS1-V1_5) in JavaScript",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "yarn jest",
+    "karma": "karma start",
+    "karma:window": "yarn webpack && cross-env TEST_ENV=window karma start",
+    "babel": "cross-env NODE_ENV=production tsc --build ./tsconfig.json",
+    "webpack": "webpack --mode development --config webpack.config.js",
+    "webpack:prod": "webpack --mode production --config webpack.config.js",
+    "build": "rm -rf ./dist && yarn babel && yarn webpack:prod",
+    "cleanup": "rm -rf ./dist coverage ./node_modules"
+  },
+  "author": "Jun Kurihara",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/junkurihara/jscu.git"
+  },
+  "bugs": {
+    "url": "https://github.com/junkurihara/jscu/issues"
+  },
+  "homepage": "https://github.com/junkurihara/jscu/tree/master/packages/js-crypto-rsa#readme",
+  "keywords": [
+    "crypto",
+    "webcrypto",
+    "rsa",
+    "rsa-oaep",
+    "rsa-pss",
+    "rsassa-pkcs1-v1_5",
+    "rfc3447"
+  ],
+  "dependencies": {
+    "bn.js": "~5.2.0",
+    "buffer": "~6.0.0",
+    "js-crypto-env": "^1.0.5",
+    "js-crypto-hash": "^1.0.7",
+    "js-crypto-key-utils": "^1.0.7",
+    "js-crypto-random": "^1.0.5",
+    "js-encoding-utils": "0.7.3"
+  }
+}
