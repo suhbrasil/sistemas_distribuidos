@@ -45,7 +45,7 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
             const { destination, embarkDate, embarkPort } = request.query;
 
             if (!destination && !embarkDate && !embarkPort) {
-                return response.status(400).json({ error: 'Parâmetros de consulta inválidos' });
+                return response.status(400).json({ error: '[*] Parâmetros de consulta inválidos' });
             }
 
             // Monta query string
@@ -55,24 +55,24 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
                 // Faz a requisição para o MS Itinerários (ajuste porta se necessário)
                 const res = await fetch(`http://localhost:4000/itinerarios?${params.toString()}`);
                 if (!res.ok) {
-                    return response.status(502).json({ error: 'Erro ao consultar itinerários' });
+                    return response.status(502).json({ error: '[*] Erro ao consultar itinerários' });
                 }
                 const data = await res.json();
                 return response.status(200).json(data);
             } catch (err) {
-                console.error('Erro ao consultar MS Itinerários:', err);
-                return response.status(500).json({ error: 'Erro interno ao consultar itinerários' });
+                console.error('[*] Erro ao consultar MS Itinerários:', err);
+                return response.status(500).json({ error: '[*] Erro interno ao consultar itinerários' });
             }
         });
 
         // Criar reserva
         app.post('/reservas', async (req, res) => {
-            const { cruiseId, embarkDate, passengers, cabins, valor, moeda, comprador } = req.body;
-            if (!cruiseId || !embarkDate || !passengers || !cabins || !valor || !moeda || !comprador) {
-                return res.status(400).json({ error: 'Campos faltando' });
+            const { cruiseId, embarkDate, passengers, cabins, value, currency, buyer } = req.body;
+            if (!cruiseId || !embarkDate || !passengers || !cabins || !value || !currency || !buyer) {
+                return res.status(400).json({ error: '[*] Campos faltando' });
             }
             const id = uuidv4();
-            const r = { id, cruiseId, embarkDate, passengers, cabins, valor, moeda, comprador, status: 'PENDING' };
+            const r = { id, cruiseId, embarkDate, passengers, cabins, value, currency, buyer, status: 'PENDING' };
             reservations.set(id, r);
 
             // Publica evento reserva-criada
@@ -82,7 +82,7 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
                 Buffer.from(JSON.stringify(r)),
                 { persistent: true }
             );
-            console.log(`[>] Publicado reserva-criada: ${id}`);
+            console.log(`[*] Publicado reserva-criada: ${id}`);
 
             // Chama o MS Pagamento para obter o link
             try {
@@ -91,13 +91,13 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         reservaId: id,
-                        valor,
-                        moeda,
-                        comprador
+                        value,
+                        currency,
+                        buyer
                     })
                 });
                 if (!resp.ok) {
-                    throw new Error('Falha ao solicitar link de pagamento');
+                    throw new Error('[*] Falha ao solicitar link de pagamento');
                 }
                 const { paymentLink, transactionId } = await resp.json();
 
@@ -105,27 +105,50 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
 
                 return res.status(201).json({ reservaId: id, paymentLink });
             } catch (err) {
-                console.error('Erro ao integrar com MS Pagamento:', err);
+                console.error('[*] Erro ao integrar com MS Pagamento:', err);
                 // Ainda retorna a reserva criada, mas sem link
-                return res.status(201).json({ reservaId: id, paymentLink: null, error: 'Erro ao solicitar pagamento' });
+                return res.status(201).json({ reservaId: id, paymentLink: null, error: '[*] Erro ao solicitar pagamento' });
             }
         });
 
         // Consultar status da reserva
         app.get('/reservas/:id', (req, res) => {
             const r = reservations.get(req.params.id);
-            if (!r) return res.status(404).json({ error: 'Reserva não encontrada' });
+            if (!r) return res.status(404).json({ error: '[*] Reserva não encontrada' });
             res.json(r);
+        });
+
+        // Cancelar reserva
+        app.delete('/reservas/:id', (req, res) => {
+            const id = req.params.id;
+            const r = reservations.get(id);
+
+            if (!r) {
+                return res.status(404).json({ error: '[*] Reserva não encontrada' });
+            }
+
+            // Publica evento reserva-cancelada
+            ch.publish(
+                EXCHANGE_NAME,
+                QUEUE_CANCEL_RESERVATION,
+                Buffer.from(JSON.stringify(r)),
+                { persistent: true }
+            );
+            console.log(`[*] Publicado reserva-cancelada: ${id}`);
+
+
+            r.status = 'CANCELLED';
+
+            return res.status(200).json({ message: 'Reserva cancelada com sucesso' });
         });
 
         // Inicia HTTP
         const PORT = 3000;
-        app.listen(PORT, () => console.log(`MS Reserva na porta ${PORT}`));
+        app.listen(PORT, () => console.log(`[*] MS Reserva na porta ${PORT}`));
 
-        //
-        // 2) Subscriber: pagamento-aprovado / pagamento-recusado / bilhete-gerado
-        //
 
+
+        // pagamento-aprovado / pagamento-recusado / bilhete-gerado / reserva-cancelada
         [QUEUE_APPROVED, QUEUE_REJECTED, QUEUE_TICKET].forEach(queue => {
             // Garante fila e bind ao exchange usando routing key = nome da fila
             ch.assertQueue(queue, { durable: true });
@@ -141,7 +164,7 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
                     try {
                         data = JSON.parse(msg.content.toString());
                     } catch {
-                        console.error('Payload inválido em', queue);
+                        console.error('[*] Payload inválido em', queue);
                         return ch.ack(msg);
                     }
 
@@ -152,11 +175,19 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
                             r.status = 'PAID';
                         } else if (queue === QUEUE_REJECTED) {
                             r.status = 'CANCELLED';
+                            // Publica evento reserva-cancelada
+                            ch.publish(
+                                EXCHANGE_NAME,
+                                QUEUE_CANCEL_RESERVATION,
+                                Buffer.from(JSON.stringify(r)),
+                                { persistent: true }
+                            );
+                            console.log(`[*] Publicado reserva-cancelada: ${r.id}`);
                         } else if (queue === QUEUE_TICKET) {
                             r.status = 'APPROVED';
                             r.ticketId = data.ticketId;
                         }
-                        console.log(`[<] Reserva ${r.id} atualizada: ${r.status}`);
+                        console.log(`[*] Reserva ${r.id} atualizada: ${r.status}`);
                     }
 
                     ch.ack(msg);

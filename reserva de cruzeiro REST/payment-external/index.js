@@ -7,7 +7,7 @@ app.use(express.json());
 // Endpoint para criar pagamento
 app.post('/pay', (req, res) => {
   // Recebe dados da requisição (ex: valor, cliente, etc)
-  const { reservaId, valor, moeda, comprador } = req.body;
+  const { reservaId, value, currency, buyer } = req.body;
   const transactionId = Math.random().toString(36).substr(2, 9);
 
   // Responde ao MS Pagamento com um link fake
@@ -16,15 +16,15 @@ app.post('/pay', (req, res) => {
 
   // Simula processamento do pagamento (1-2 segundos) e faz webhook
   setTimeout(() => {
-    const status = (valor > 0 && moeda === 'BRL') ? 'autorizado' : 'recusado';
+    const status = (value > 0 && currency === 'BRL') ? 'autorizado' : 'recusado';
 
     const payload = {
       transactionId,
       reservaId,
       status,
-      valor,
-      moeda,
-      comprador,
+      value,
+      currency,
+      buyer,
     };
 
     // Envia POST para o webhook do MS Pagamento
@@ -33,7 +33,6 @@ app.post('/pay', (req, res) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
-    // .then(() => console.log('Webhook enviado:', payload))
     .catch(err => console.error('Erro ao enviar webhook:', err));
   }, 2000); // 2s de delay para simular processamento
 });

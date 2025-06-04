@@ -27,7 +27,7 @@ app.get('/itinerarios', (req, res) => {
 
 // Inicia a API e o consumidor RabbitMQ
 app.listen(PORT, () => {
-    console.log('MS Itinerários na porta', PORT);
+    console.log('[-] MS Itinerários na porta', PORT);
 
     amqp.connect(RABBITMQ_URL, (err0, conn) => {
         if (err0) throw err0;

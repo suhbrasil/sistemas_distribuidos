@@ -19,14 +19,14 @@ let channelAmqp;
 // Conecta ao RabbitMQ usando callbacks
 amqp.connect(RABBITMQ_URL, (err0, connection) => {
     if (err0) {
-        console.error('Falha ao conectar no RabbitMQ:', err0);
+        console.error('[$] Falha ao conectar no RabbitMQ:', err0);
         process.exit(1);
     }
 
     // Cria canal via callback
     connection.createChannel((err1, channel) => {
         if (err1) {
-            console.error('Falha ao criar canal:', err1);
+            console.error('[$] Falha ao criar canal:', err1);
             process.exit(1);
         }
 
@@ -40,7 +40,7 @@ amqp.connect(RABBITMQ_URL, (err0, connection) => {
         // Processa 1 mensagem por vez
         channel.prefetch(1);
 
-        console.log(`[*] MS Pagamento aguardando em ${QUEUE_IN} (exchange=${EXCHANGE_NAME})...`);
+        console.log(`[$] MS Pagamento aguardando em ${QUEUE_IN} (exchange=${EXCHANGE_NAME})...`);
 
         // Consome mensagens
         channel.consume(
@@ -51,10 +51,10 @@ amqp.connect(RABBITMQ_URL, (err0, connection) => {
                 try {
                     const reserva = JSON.parse(msg.content.toString());
                     // Aqui só loga/valida se quiser, NÃO publica na fila!
-                    console.log('[>] MS Pagamento recebeu reserva:', reserva.id);
+                    console.log('[$] MS Pagamento recebeu reserva:', reserva.id);
                     // Você pode registrar em memória/DB se quiser.
                 } catch (err) {
-                    console.error('Erro ao processar reserva:', err);
+                    console.error('[$] Erro ao processar reserva:', err);
                 }
                 channel.ack(msg);
             },
@@ -68,10 +68,10 @@ amqp.connect(RABBITMQ_URL, (err0, connection) => {
 
 // Endpoint para o MS Reserva solicitar o link de pagamento
 app.post('/pagamento', async (req, res) => {
-    const { reservaId, valor, moeda, comprador } = req.body;
+    const { reservaId, value, currency, buyer } = req.body;
 
-    if (!reservaId || !valor || !moeda || !comprador || !comprador.nome || !comprador.email) {
-        return res.status(400).json({ error: 'Campos faltando ou inválidos.' });
+    if (!reservaId || !value || !currency || !buyer || !buyer.nome || !buyer.email) {
+        return res.status(400).json({ error: '[$]Campos faltando ou inválidos.' });
     }
 
     try {
@@ -79,30 +79,30 @@ app.post('/pagamento', async (req, res) => {
         const resp = await fetch('http://localhost:4002/pay', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reservaId, valor, moeda, comprador }),
+            body: JSON.stringify({ reservaId, value, currency, buyer }),
         });
         const { paymentLink, transactionId } = await resp.json();
 
         // Retorna o link ao cliente (MS Reserva)
         return res.status(201).json({ paymentLink, transactionId });
     } catch (err) {
-        console.error('Erro ao consultar sistema de pagamento externo:', err);
+        console.error('[$]Erro ao consultar sistema de pagamento externo:', err);
         return res.status(500).json({ error: 'Erro ao solicitar pagamento externo' });
     }
 });
 
 //  Endpoint para receber webhook do sistema externo
 app.post('/webhook', (req, res) => {
-    const { transactionId, reservaId, status, valor, moeda, comprador } = req.body;
-    console.log("[+] MS Pagamento recebeu resposta do sistema externo:", req.body);
+    const { transactionId, reservaId, status, value, currency, buyer } = req.body;
+    console.log("[$] MS Pagamento recebeu resposta do sistema externo:", req.body);
 
     const response = {
         reservaId,
         transactionId,
         status: status === 'autorizado' ? 'APROVADO' : 'RECUSADO',
-        valor,
-        moeda,
-        comprador,
+        value,
+        currency,
+        buyer,
         timestamp: new Date().toISOString(),
     };
 
@@ -117,7 +117,7 @@ app.post('/webhook', (req, res) => {
     );
 
 
-    console.log(`[+] Pagamento ${ response.status } para reserva ${ reservaId }`);
+    console.log(`[$] Pagamento ${ response.status } para reserva ${ reservaId }`);
 
 
     res.json({ ok: true });
@@ -126,5 +126,5 @@ app.post('/webhook', (req, res) => {
 // Sobe a API REST
 const PORT = 4001;
 app.listen(PORT, () => {
-    console.log('MS Pagamento REST na porta', PORT);
+    console.log('[$] MS Pagamento REST na porta', PORT);
 });

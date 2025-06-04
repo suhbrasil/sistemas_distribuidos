@@ -3,7 +3,7 @@ import { useState } from 'react';
 export default function ReservationForm({ itinerary, onSuccess }) {
     const [passengers, setPassengers] = useState(1);
     const [cabins, setCabins] = useState(1);
-    const [comprador, setComprador] = useState({ nome: '', email: '' });
+    const [buyer, setBuyer] = useState({ nome: '', email: '' });
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -15,9 +15,9 @@ export default function ReservationForm({ itinerary, onSuccess }) {
                 embarkDate: itinerary.embarkDate,
                 passengers: Number(passengers),
                 cabins: Number(cabins),
-                valor: itinerary.pricePerPerson,
-                moeda: 'BRL',
-                comprador: comprador,
+                value: itinerary.pricePerPerson,
+                currency: 'BRL',
+                buyer: buyer,
             }),
         });
         const data = await res.json();
@@ -53,9 +53,9 @@ export default function ReservationForm({ itinerary, onSuccess }) {
                 <label className="block mb-1">Nome do comprador</label>
                 <input
                     type="text"
-                    value={comprador.nome}
+                    value={buyer.nome}
                     onChange={(e) =>
-                        setComprador({ ...comprador, nome: e.target.value })
+                        setBuyer({ ...buyer, nome: e.target.value })
                     }
                     className="w-full border rounded p-2"
                     required
@@ -65,9 +65,9 @@ export default function ReservationForm({ itinerary, onSuccess }) {
                 <label className="block mb-1">Email do comprador</label>
                 <input
                     type="email"
-                    value={comprador.email}
+                    value={buyer.email}
                     onChange={(e) =>
-                        setComprador({ ...comprador, email: e.target.value })
+                        setBuyer({ ...buyer, email: e.target.value })
                     }
                     className="w-full border rounded p-2"
                     required
