@@ -11,7 +11,7 @@ if (args.length == 0) {
   process.exit(1);
 }
 
-amqp.connect('amqp://localhost', (error0, connection) => {
+amqp.connect(RABBITMQ_URL, (error0, connection) => {
     if (error0) {
         throw error0;
     }
@@ -41,6 +41,6 @@ amqp.connect('amqp://localhost', (error0, connection) => {
             }, {
                 noAck: true
             });
-        });   
+        });
     });
 });

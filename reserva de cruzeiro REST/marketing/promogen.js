@@ -1,46 +1,57 @@
 const fs = require('fs');
 const path = require('path');
 
-const destinations = ["Salvador", "Maceio", "Natal", "Paraty", "Ilheus"];
-const NUM_PROMOTIONS = 5; // adjust for more or fewer promotions
+const NUM_PROMOTIONS = 3; // Reduzido para 3 promoções
 const FILE_PATH = path.join(__dirname, 'promo.json');
+const CRUISES_PATH = path.join(__dirname, '..', 'itinerary', 'cruises.json');
 
-function generateFutureDate(daysFromToday) {
-  const date = new Date();
-  date.setDate(date.getDate() + daysFromToday);
-  return date.toISOString().split('T')[0];
+// Lê os cruzeiros do arquivo
+const cruises = JSON.parse(fs.readFileSync(CRUISES_PATH, 'utf8'));
+
+// Embaralha o array de cruzeiros para selecionar aleatoriamente
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
 }
 
-// Alteração aqui:
-let currentIndex = 0;
-function generateRandomPromotion() {
-  if (currentIndex >= destinations.length) {
-    throw new Error("Número de promoções excede número de destinos únicos.");
-  }
+function generatePromotion(cruise) {
+    // Calcula um desconto entre 20% e 40%
+    const discountPercent = Math.random() * (40 - 20) + 20;
+    const discountedPrice = Math.max(0, Math.round(cruise.pricePerPerson * (1 - discountPercent / 100)));
 
-  const destination = destinations[currentIndex];
-  currentIndex++;
+    return {
+        cruiseId: cruise.cruiseId,
+        embarkDate: cruise.embarkDate,
+        shipName: cruise.shipName,
+        embarkPort: cruise.embarkPort,
+        disembarkPort: cruise.disembarkPort,
+        destination: cruise.visitedPlaces[0],
+        cabinsAvailable: cruise.cabinsAvailable,
+        duration: cruise.duration,
+        pricePerPerson: discountedPrice,
 
-  const startInDays = Math.floor(Math.random() * 60) + 5;
-  const durationDays = Math.floor(Math.random() * 10) + 3;
-
-  return {
-    destination,
-    start_date: generateFutureDate(startInDays),
-    end_date: generateFutureDate(startInDays + durationDays),
-    price: (Math.random() * (5000 - 1500) + 1500).toFixed(2)
-  };
+    };
 }
 
 function generatePromotions() {
-  const promotions = [];
+    // Embaralha os cruzeiros e seleciona os primeiros NUM_PROMOTIONS
+    const selectedCruises = shuffleArray([...cruises]).slice(0, NUM_PROMOTIONS);
 
-  for (let i = 0; i < NUM_PROMOTIONS; i++) {
-    promotions.push(generateRandomPromotion());
-  }
+    const promotions = selectedCruises.map(cruise => generatePromotion(cruise));
 
-  fs.writeFileSync(FILE_PATH, JSON.stringify(promotions, null, 2));
-  console.log(`✅ ${NUM_PROMOTIONS} promotions saved to ${FILE_PATH}`);
+    fs.writeFileSync(FILE_PATH, JSON.stringify(promotions, null, 2));
+    console.log(`✅ ${NUM_PROMOTIONS} promotions saved to ${FILE_PATH}`);
+
+    // Promoções geradas
+    promotions.forEach(promo => {
+        console.log(`Promoção criada para o cruzeiro ${promo.cruiseId}:`);
+        console.log(`Destino: ${promo.destination}`);
+        console.log(`Preço promocional: R$ ${promo.pricePerPerson}`);
+        console.log('---');
+    });
 }
 
 generatePromotions();

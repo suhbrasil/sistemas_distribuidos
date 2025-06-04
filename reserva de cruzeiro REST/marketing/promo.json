@@ -1,32 +1,35 @@
 [
   {
-    "destination": "Salvador",
-    "start_date": "2025-06-14",
-    "end_date": "2025-06-18",
-    "price": "2305.92"
+    "cruiseId": "cruzeiro-12",
+    "embarkDate": "2025-06-15",
+    "shipName": "Navio Estelar",
+    "embarkPort": "Porto Rio",
+    "disembarkPort": "Porto Santos",
+    "destination": "Ilha Bela",
+    "cabinsAvailable": 1,
+    "duration": 5,
+    "pricePerPerson": 835
   },
   {
-    "destination": "Maceio",
-    "start_date": "2025-06-27",
-    "end_date": "2025-06-30",
-    "price": "3500.48"
+    "cruiseId": "cruzeiro-15",
+    "embarkDate": "2025-09-20",
+    "shipName": "Navio do Sol",
+    "embarkPort": "Porto Vitória",
+    "disembarkPort": "Porto Rio",
+    "destination": "Búzios",
+    "cabinsAvailable": 30,
+    "duration": 4,
+    "pricePerPerson": 585
   },
   {
-    "destination": "Natal",
-    "start_date": "2025-06-26",
-    "end_date": "2025-07-04",
-    "price": "4987.76"
-  },
-  {
-    "destination": "Paraty",
-    "start_date": "2025-05-25",
-    "end_date": "2025-05-31",
-    "price": "2262.33"
-  },
-  {
-    "destination": "Ilheus",
-    "start_date": "2025-06-15",
-    "end_date": "2025-06-21",
-    "price": "4104.27"
+    "cruiseId": "cruzeiro-16",
+    "embarkDate": "2025-10-12",
+    "shipName": "Navio Imperial",
+    "embarkPort": "Porto Recife",
+    "disembarkPort": "Porto Belém",
+    "destination": "João Pessoa",
+    "cabinsAvailable": 50,
+    "duration": 10,
+    "pricePerPerson": 1330
   }
 ]

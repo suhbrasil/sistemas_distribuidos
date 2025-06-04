@@ -12,6 +12,8 @@ const {
     QUEUE_REJECTED,
     QUEUE_TICKET
 } = require('./config');
+const { addClient, registerInterests, notifyPromotion, notifyReservationStatus } = require('./notifications');
+const { normalizeDestination } = require('../utils');
 // const { verifyPayload } = require('./verify');
 const fetch = require('node-fetch');
 
@@ -142,6 +144,74 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
             return res.status(200).json({ message: 'Reserva cancelada com sucesso' });
         });
 
+        // Endpoint SSE para notificações
+        app.get('/notifications/:clientId', (req, res) => {
+            const clientId = req.params.clientId;
+            addClient(clientId, res);
+        });
+
+        // Endpoint para registrar interesse em promoções
+        app.post('/interests/:clientId', (req, res) => {
+            const { clientId } = req.params;
+            const { destinations } = req.body;
+
+            if (!destinations || !Array.isArray(destinations)) {
+                return res.status(400).json({ error: '[*] Destinos inválidos' });
+            }
+
+            registerInterests(clientId, destinations);
+
+            // Cria uma única fila para o cliente
+            const queueName = `promocoes_${clientId}`;
+
+            // Primeiro, garante que a fila existe
+            ch.assertQueue(queueName, {
+                exclusive: true
+            }, (error, q) => {
+                if (error) {
+                    console.error('[*] Erro ao criar fila:', error);
+                    return res.status(500).json({ error: '[*] Erro ao criar fila de promoções' });
+                }
+
+                // Bind a fila ao exchange com a routing key 'promocoes'
+                ch.bindQueue(q.queue, EXCHANGE_NAME, 'promocoes', {}, (bindError) => {
+                    if (bindError) {
+                        console.error('[*] Erro ao fazer bind da fila:', bindError);
+                        return res.status(500).json({ error: '[*] Erro ao configurar fila de promoções' });
+                    }
+
+                    // Consome mensagens da fila
+                    ch.consume(q.queue, (msg) => {
+                        if (msg !== null) {
+                            try {
+                                const promotions = JSON.parse(msg.content.toString());
+
+                                // Filtra promoções apenas para os destinos de interesse do cliente
+                                const clientPromotions = promotions.filter(promo => {
+                                    const match = destinations.some(dest =>
+                                        normalizeDestination(dest) === normalizeDestination(promo.destination)
+                                    );
+                                    return match;
+                                });
+
+                                if (clientPromotions.length > 0) {
+                                    notifyPromotion(clientPromotions);
+                                }
+                            } catch (error) {
+                                console.error('[*] Erro ao processar mensagem:', error);
+                            }
+                            ch.ack(msg);
+                        }
+                    }, { noAck: false });
+
+                    res.status(200).json({
+                        message: '[*] Interesses registrados com sucesso',
+                        queueName: queueName
+                    });
+                });
+            });
+        });
+
         // Inicia HTTP
         const PORT = 3000;
         app.listen(PORT, () => console.log(`[*] MS Reserva na porta ${PORT}`));
@@ -187,6 +257,10 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
                             r.status = 'APPROVED';
                             r.ticketId = data.ticketId;
                         }
+
+                        // Notifica o cliente sobre a mudança de status
+                        notifyReservationStatus(r.id, r.status);
+
                         console.log(`[*] Reserva ${r.id} atualizada: ${r.status}`);
                     }
 

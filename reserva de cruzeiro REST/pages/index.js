@@ -2,6 +2,7 @@ import { useState } from 'react';
 import SearchForm from '../components/SearchForm';
 import ItineraryList from '../components/ItineraryList';
 import ReservationForm from '../components/ReservationForm';
+import PromoSubscription from '../components/PromoSubscription';
 
 export default function Home() {
     const [itineraries, setItineraries] = useState([]);
@@ -32,29 +33,45 @@ export default function Home() {
 
     return (
         <div className="container mx-auto p-4">
-            <h1 className="text-2xl font-bold mb-4">Buscar Itinerários</h1>
-            <SearchForm onSearch={handleSearch} />
-            <ItineraryList itineraries={itineraries} onSelect={handleSelect} />
-            {selected && !reservationInfo && (
-                <ReservationForm itinerary={selected} onSuccess={handleReservation} />
-            )}
-            {reservationInfo && (
-                <div className="mt-4 p-4 bg-green-100 rounded">
-                    <h2 className="text-xl font-semibold">Reserva Criada!</h2>
-                    <p>ID: {reservationInfo.reservaId}</p>
-                    <p>
-                        Link de Pagamento:{' '}
-                        <a
-                            href={reservationInfo.paymentLink}
-                            className="text-blue-600 underline"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                        >
-                            {reservationInfo.paymentLink}
-                        </a>
-                    </p>
+            <div>
+                <PromoSubscription />
+            </div>
+            <div className="gap-8 mt-10">
+                <div>
+                    <div className="bg-white rounded-lg shadow-lg p-6 mb-8 ">
+                        <h2 className="text-2xl font-bold text-indigo-800 mb-4">Buscar Itinerários</h2>
+                        <SearchForm onSearch={handleSearch} />
+                    </div>
+
+                    <ItineraryList itineraries={itineraries} onSelect={handleSelect} />
+
+                    {selected && !reservationInfo && (
+                        <div className="mt-6">
+                            <ReservationForm itinerary={selected} onSuccess={handleReservation} />
+                        </div>
+                    )}
+
+                    {reservationInfo && (
+                        <div className="mt-6 p-6 bg-green-100 rounded-lg shadow">
+                            <h2 className="text-xl font-semibold text-green-800">Reserva Criada!</h2>
+                            <p className="mt-2"><strong>ID:</strong> {reservationInfo.reservaId}</p>
+                            <p className="mt-2">
+                                <strong>Link de Pagamento:</strong>{' '}
+                                <a
+                                    href={reservationInfo.paymentLink}
+                                    className="text-blue-600 hover:text-blue-800 underline"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                >
+                                    {reservationInfo.paymentLink}
+                                </a>
+                            </p>
+                        </div>
+                    )}
                 </div>
-            )}
+
+
+            </div>
         </div>
     );
 }
