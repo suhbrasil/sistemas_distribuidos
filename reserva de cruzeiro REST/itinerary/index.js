@@ -35,38 +35,38 @@ app.listen(PORT, () => {
             if (err1) throw err1;
             ch.assertExchange(EXCHANGE_NAME, 'direct', { durable: true });
 
-            // Consome reserva-criada
-            ch.assertQueue(QUEUE_CREATE_RESERVATION, { durable: true });
-            ch.bindQueue(QUEUE_CREATE_RESERVATION, EXCHANGE_NAME, 'reserva-criada');
+            [QUEUE_CREATE_RESERVATION, QUEUE_CANCEL_RESERVATION].forEach(queue => {
+                ch.assertQueue(queue, { durable: true });
 
-            // Processa 1 mensagem por vez
-            ch.prefetch(1);
+                const routingKey = queue === QUEUE_CANCEL_RESERVATION ? 'reserva-cancelada' : 'reserva-criada';
+                ch.bindQueue(queue, EXCHANGE_NAME, routingKey);
 
+                ch.consume(
+                    queue,
+                    async msg => {
+                        if (!msg) return ch.ack(msg);
+                        try {
+                            const data = JSON.parse(msg.content.toString());
+                            const { cruiseId, cabins } = data;
 
-            ch.consume(
-                QUEUE_CREATE_RESERVATION,
-                msg => {
-                    if (!msg) return;
-
-                    const { cruiseId, cabins } = JSON.parse(msg.content.toString());
-
-                    const cruise = cruises.find(c => c.cruiseId === cruiseId);
-                    if (cruise) cruise.cabinsAvailable -= Number(cabins);
-
-                    ch.ack(msg);
-                },
-                { noAck: false }
-            );
-
-            //   // Consome reserva-cancelada
-            //   ch.assertQueue(QUEUE_CANCEL_RESERVATION, { durable: true });
-            //   ch.bindQueue(QUEUE_CANCEL_RESERVATION, EXCHANGE_NAME, QUEUE_CANCEL_RESERVATION);
-            //   ch.consume(QUEUE_CANCEL_RESERVATION, msg => {
-            //     const { cruiseId, cabins } = JSON.parse(msg.content.toString());
-            //     const cruise = cruises.find(c => c.cruiseId === cruiseId);
-            //     if (cruise) cruise.cabinsAvailable += Number(cabins);
-            //     ch.ack(msg);
-            //   });
+                            const cruise = cruises.find(c => c.cruiseId === cruiseId);
+                            if (cruise) {
+                                if (queue === QUEUE_CANCEL_RESERVATION) {
+                                    cruise.cabinsAvailable += Number(cabins);
+                                } else {
+                                    cruise.cabinsAvailable -= Number(cabins);
+                                }
+                            } else {
+                                console.log(`[*] Cruzeiro ${cruiseId} não encontrado`);
+                            }
+                        } catch (error) {
+                            console.error(`[*] Erro ao processar mensagem:`, error);
+                        }
+                        ch.ack(msg);
+                    },
+                    { noAck: false }
+                );
+            });
         });
     });
 });

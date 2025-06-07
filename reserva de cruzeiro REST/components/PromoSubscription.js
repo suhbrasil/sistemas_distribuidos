@@ -59,6 +59,24 @@ export default function PromoSubscription() {
         }
     };
 
+    const handleUnsubscribe = async () => {
+        try {
+            const response = await fetch(`http://localhost:3000/interests/${clientId}`, {
+                method: 'DELETE',
+            });
+
+            if (response.ok) {
+                setSubmitted(false);
+                setNotifications([]);
+                setDestinations([]);
+            } else {
+                throw new Error('Falha ao cancelar inscrição');
+            }
+        } catch (error) {
+            console.error('Erro ao cancelar inscrição:', error);
+        }
+    };
+
     const handleDestinationToggle = (destination) => {
         setDestinations(prev =>
             prev.includes(destination)
@@ -82,8 +100,18 @@ export default function PromoSubscription() {
             {submitted ? (
                 <div className="space-y-4">
                     <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative">
-                        <p className="font-medium">Inscrição realizada com sucesso!</p>
-                        <p className="text-sm">Você receberá notificações de promoções para os destinos selecionados.</p>
+                        <div className="flex justify-between items-center">
+                            <div>
+                                <p className="font-medium">Inscrição realizada com sucesso!</p>
+                                <p className="text-sm">Você receberá notificações de promoções para os destinos selecionados.</p>
+                            </div>
+                            <button
+                                onClick={handleUnsubscribe}
+                                className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition-colors"
+                            >
+                                Cancelar Inscrição
+                            </button>
+                        </div>
                     </div>
 
                     {notifications.length > 0 && (
@@ -108,14 +136,6 @@ export default function PromoSubscription() {
                                                 </p>
                                                 <p className="text-sm text-green-600 font-semibold">
                                                     Preço: R$ {notification.data.pricePerPerson}
-                                                </p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className="text-xs text-gray-500">
-                                                    {new Date(notification.data.embarkDate).toLocaleDateString()}
-                                                </p>
-                                                <p className="text-xs text-gray-500 mt-1">
-                                                    {notification.data.duration} dias
                                                 </p>
                                             </div>
                                         </div>

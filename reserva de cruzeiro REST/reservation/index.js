@@ -12,9 +12,8 @@ const {
     QUEUE_REJECTED,
     QUEUE_TICKET
 } = require('./config');
-const { addClient, registerInterests, notifyPromotion, notifyReservationStatus } = require('./notifications');
+const { addClient, registerInterests, notifyPromotion, notifyReservationStatus, unregisterInterests } = require('./notifications');
 const { normalizeDestination } = require('../utils');
-// const { verifyPayload } = require('./verify');
 const fetch = require('node-fetch');
 
 // allow your frontend origin
@@ -140,6 +139,10 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
 
 
             r.status = 'CANCELLED';
+            // Notifica o cliente sobre a mudança de status
+            notifyReservationStatus(id, r.status, r.ticketId);
+
+
 
             return res.status(200).json({ message: 'Reserva cancelada com sucesso' });
         });
@@ -212,6 +215,29 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
             });
         });
 
+        // Endpoint para cancelar inscrição em promoções
+        app.delete('/interests/:clientId', (req, res) => {
+            const { clientId } = req.params;
+
+            // Remove os interesses do cliente
+            const removed = unregisterInterests(clientId);
+
+            if (!removed) {
+                return res.status(404).json({ error: '[*] Cliente não encontrado' });
+            }
+
+            // Remove a fila de promoções do cliente
+            const queueName = `promocoes_${clientId}`;
+            ch.deleteQueue(queueName, {}, (error) => {
+                if (error) {
+                    console.error('[*] Erro ao remover fila:', error);
+                    return res.status(500).json({ error: '[*] Erro ao remover fila de promoções' });
+                }
+
+                res.status(200).json({ message: `[*] Inscrição do cliente ${clientId} cancelada com sucesso` });
+            });
+        });
+
         // Inicia HTTP
         const PORT = 3000;
         app.listen(PORT, () => console.log(`[*] MS Reserva na porta ${PORT}`));
@@ -259,7 +285,7 @@ amqp.connect(RABBITMQ_URL, (error0, conn) => {
                         }
 
                         // Notifica o cliente sobre a mudança de status
-                        notifyReservationStatus(r.id, r.status);
+                        notifyReservationStatus(r.id, r.status, r.ticketId);
 
                         console.log(`[*] Reserva ${r.id} atualizada: ${r.status}`);
                     }

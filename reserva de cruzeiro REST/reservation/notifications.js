@@ -33,6 +33,12 @@ function registerInterests(clientId, destinations) {
     console.log(`[SSE] Interesses registrados para cliente ${clientId}:`, destinations);
 }
 
+function unregisterInterests(clientId) {
+    const removed = clientInterests.delete(clientId);
+    console.log(`[SSE] Interesses removidos para cliente ${clientId}`);
+    return removed;
+}
+
 function notifyClient(clientId, event, data) {
     const client = clients.get(clientId);
     if (client) {
@@ -56,16 +62,20 @@ function notifyPromotion(promotions) {
     }
 }
 
-function notifyReservationStatus(reservationId, status) {
-    // Notifica o cliente específico sobre sua reserva
-    for (const [clientId, response] of clients) {
-        notifyClient(clientId, 'reservation_status', { reservationId, status });
+function notifyReservationStatus(reservationId, status, ticketId) {
+    // Notifica apenas o cliente específico da reserva
+    const client = clients.get(reservationId);
+    if (client) {
+        client.write(`event: reservation_status\n`);
+        client.write(`data: ${JSON.stringify({ reservationId, status, ticketId })}\n\n`);
+        console.log(`[SSE] Notificação de status enviada para reserva ${reservationId}: ${status}`);
     }
 }
 
 module.exports = {
     addClient,
     registerInterests,
+    unregisterInterests,
     notifyPromotion,
     notifyReservationStatus
 };
